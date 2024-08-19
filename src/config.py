@@ -1,5 +1,6 @@
-
+import os 
 import os.path as osp
+
 import torch
 
 class Config:
@@ -39,6 +40,7 @@ class Config:
     MAX_OUTPUT              = 128
 
     SEED                    = 2024
+    NUM_WORKERS             = os.cpu_count()
     EMBEDDING_DIM           = 256
     MAX_LENGTH              = 128
     tf_ratio_start          = 1.0

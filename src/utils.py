@@ -42,32 +42,39 @@ def linear_tf_scheduler(
     return max(end_ratio, start_ratio - (start_ratio - end_ratio) * (epoch / num_epochs))
 
 
-def train_fn(model, data_loader, criterion, optimizer, device, teacher_forcing_ratio):
+def train_fn(
+        model, 
+        data_loader, 
+        optimizer,
+        device=Config.device, 
+        teacher_forcing_ratio=Config.tf_ratio_start
+):
     model.train()
     epoch_loss = 0
     
-    loop = tqdm(data_loader, leave=False)
+    loop = tqdm(data_loader, leave=False, desc="Training", colour="blue")
     
     for batch in loop:
-        src_batch, trg_batch = batch
+        src_batch, trg_batch, _, _ = batch
         src_batch, trg_batch = src_batch.to(device), trg_batch.to(device)
         
         optimizer.zero_grad()
         
         # Forward pass
-        output = model(src_batch, trg_batch, teacher_forcing_ratio=teacher_forcing_ratio)
+        output, attn_ws = model(src=src_batch, trg=trg_batch, teacher_forcing_ratio=teacher_forcing_ratio)
+        # print(f"out: {output.shape}")
         
         output = output[:, 1:].reshape(-1, output.shape[-1])
         trg_batch = trg_batch[:, 1:].reshape(-1)
         
-        loss = criterion(output, trg_batch)
+        loss = model.criterion(output, trg_batch)
         loss.backward()
         
         optimizer.step()
         
         epoch_loss += loss.item()
         
-        loop.set_description(f"Training Loss: {loss.item():.4f}")
+        loop.set_postfix_str(f"Loss: {loss.item():.4f}")
     
     return epoch_loss / len(data_loader)
 

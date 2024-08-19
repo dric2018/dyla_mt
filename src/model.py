@@ -232,16 +232,16 @@ class DyulaTranslator(pl.LightningModule):
         self.src_tokenizer          = src_tokenizer
         self.tgt_tokenizer          = tgt_tokenizer
         self.criterion              = nn.CrossEntropyLoss(ignore_index=tgt_tokenizer.vocab['[PAD]'])
-        self.teacher_forcing_ratio  = Config.tf_ratio_start  # Start with full teacher forcing
+        self.tf                     = Config.tf_ratio_start  # Start with full teacher forcing
     
-    def forward(self, src, trg=None):
+    def forward(self, src, trg=None, teacher_forcing_ratio:float=1.):
         
         logits, attn_ws = self.translator(src, trg)
         return logits, attn_ws
 
     def training_step(self, batch, batch_idx):
-        src, trg = batch
-        output = self(src, trg)
+        src, trg, _, _ = batch
+        output = self(src=src, trg=trg, teacher_forcing_ratio=self.tf)
         
         output = output[:, 1:].reshape(-1, output.shape[-1])
         trg = trg[:, 1:].reshape(-1)
@@ -251,8 +251,8 @@ class DyulaTranslator(pl.LightningModule):
         return loss
     
     def validation_step(self, batch, batch_idx):
-        src, trg = batch
-        output, attn_weights = self(src, trg, teacher_forcing_ratio=.0)
+        src, trg, _, _ = batch
+        output, attn_weights = self(src=src, trg=trg, teacher_forcing_ratio=.0)
 
         output = output[:, 1:].reshape(-1, output.shape[-1])
         trg = trg[:, 1:].reshape(-1)
@@ -261,9 +261,9 @@ class DyulaTranslator(pl.LightningModule):
         loss = self.criterion(output, trg)
         self.log("val_loss", loss)
 
-        # Log predictions and attention weights to W&B
-        if batch_idx % 100 == 0:  # Adjust frequency as needed
-            self.log_predictions_and_attention_to_wandb(src, output, trg, attn_weights, batch_idx)
+        # # Log predictions and attention weights to W&B
+        # if batch_idx % 100 == 0:  # Adjust frequency as needed
+        #     self.log_predictions_and_attention_to_wandb(src, output, trg, attn_weights, batch_idx)
 
         return loss
     
@@ -296,8 +296,8 @@ class DyulaTranslator(pl.LightningModule):
             end_ratio:float=Config.tf_ratio_end, 
             num_epochs:int=Config.EPOCHS
         ):
-        self.teacher_forcing_ratio = max(end_ratio, start_ratio - (start_ratio - end_ratio) * (epoch / num_epochs))
-        self.log("teacher_forcing_ratio", self.teacher_forcing_ratio)
+        self.tf = max(end_ratio, start_ratio - (start_ratio - end_ratio) * (epoch / num_epochs))
+        self.log("teacher_forcing_ratio", self.tf)
     
     def on_epoch_end(self):
         self.update_teacher_forcing_ratio(self.current_epoch)
@@ -311,9 +311,11 @@ class DyulaTranslator(pl.LightningModule):
             attn_weights, 
             batch_idx
     ):
-        src_texts = [self.src_tokenizer.decode(s) for s in src.cpu()]
-        trg_texts = [self.trg_tokenizer.decode(t) for t in trg.cpu()]
-        output_texts = [self.trg_tokenizer.decode(o.argmax(dim=-1)) for o in output.cpu()]
+        B = src.size(0)
+
+        src_texts       = torch.stack([self.src_tokenizer.decode(src[b].cpu().tolist()) for b in range(B)])
+        trg_texts       = torch.stack([self.tgt_tokenizer.decode(trg[b].cpu().tolist()) for b in range(B)])
+        output_texts    = torch.stack([self.tgt_tokenizer.decode(output[b].cpu().argmax(dim=-1)) for b in range(B)])
 
         # Log predictions
         predictions_table = wandb.Table(columns=["Source", "Target", "Prediction"])
