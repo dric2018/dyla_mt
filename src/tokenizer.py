@@ -49,7 +49,6 @@ class Tokenizer:
     def build_vocab(
             self,
             sentences, 
-            min_freq:int=2, 
             specials:list=Config.SPECIAL_TOKENS,
             mt:bool=True
         ):
@@ -59,7 +58,7 @@ class Tokenizer:
         
         if mt:
             # Filter tokens below min frequency and add specials
-            vocab = {token: idx + len(specials) for idx, (token, count) in enumerate(token_counts.items()) if count >= min_freq}
+            vocab = {token: idx + len(specials) for idx, (token, count) in enumerate(token_counts.items())}
             # Prepend special tokens
             vocab = {tok: idx for idx, tok in enumerate(specials)} | vocab
             # Set default index for unknown tokens

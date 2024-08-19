@@ -23,7 +23,23 @@ class Config:
     DATA_DIR                = osp.join(PROJECT_PATH, "data")
 
     # Model
+    ## Encoder
+    ENCODER_EMBEDDING_DIM   = 256
+    ENCODER_HIDDEN_DIM      = 256
+    NUM_ENCODER_LAYERS      = 2
+    ENCODER_DROPOUT         = .15
+
+    D_MODEL                 = 256
+
+    ## Decoder
+    DECODER_EMBEDDING_DIM   = 256
+    DECODER_HIDDEN_DIM      = 256
+    NUM_DECODER_LAYERS      = 3
+    DECODER_DROPOUT         = .15
+    MAX_OUTPUT              = 128
+
     SEED                    = 2024
+    EMBEDDING_DIM           = 256
     MAX_LENGTH              = 128
     tf_ratio_start          = 1.0
     tf_ratio_end            = 0.5

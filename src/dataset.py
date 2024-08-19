@@ -54,8 +54,8 @@ class DyulaDFDataset(Dataset):
 # Collate function for padding
 def collate_fn(batch):
     source_batch, target_batch = zip(*batch)
-    source_batch = pad_sequence(source_batch, padding_value=0)
-    target_batch = pad_sequence(target_batch, padding_value=0)
+    source_batch = pad_sequence(source_batch, padding_value=0, batch_first=True)
+    target_batch = pad_sequence(target_batch, padding_value=0, batch_first=True)
     return source_batch, target_batch
 
 
@@ -111,8 +111,8 @@ class TranslationDataModule(pl.LightningDataModule):
             collate_fn=collate_fn
         )
 
+def build_data_module()->LightningDataModule:
 
-if __name__=="__main__":
     logging.info("Loading dataset files")
     train = pd.read_csv(osp.join(Config.DATA_DIR, "preprocessed/train.csv"))
     valid = pd.read_csv(osp.join(Config.DATA_DIR, "preprocessed/valid.csv"))
@@ -140,22 +140,24 @@ if __name__=="__main__":
     assert src_tokenizer.vocab["[UNK]"] == tgt_tokenizer.vocab["[UNK]"]
     assert src_tokenizer.vocab["[PAD]"] == tgt_tokenizer.vocab["[PAD]"]
 
-    # Get indices for unknown and padding tokens
-    unk_index = Config.SPECIAL_TOKENS.index("[UNK]")
-    pad_index = Config.SPECIAL_TOKENS.index("[PAD]")
-
-    print()
-    logging.info("Building Data loaders")
+    logging.info("Building Data module")
     
     # Create datasets
     dm = TranslationDataModule(
         train_df=train,
         val_df=valid,
         src_tokenizer=src_tokenizer,
-        tgt_tokenizer=tgt_tokenizer
+        tgt_tokenizer=tgt_tokenizer,
+        batch_size=Config.BATCH_SIZE
     )
+
+    return dm
+
+
+if __name__=="__main__":
+    
+    dm = build_data_module()
     dm.setup()
-    # sys.exit()
 
     # Training data loader sanity check
     print()
