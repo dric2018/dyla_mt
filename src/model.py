@@ -1,8 +1,12 @@
+import numpy as np
+
 #torch
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from torchinfo import summary
+
 # lightning
 import pytorch_lightning as pl
 
@@ -11,6 +15,10 @@ from dataset import build_data_module
 
 import logging
 logging.basicConfig(level='INFO')
+
+# plotting
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 import wandb
 
@@ -259,6 +267,14 @@ class DyulaTranslator(pl.LightningModule):
 
         return loss
     
+    def decode_predictions(self, logits, tokenizer):
+        
+        probs = F.softmax(logits, dim=-1)
+        predicted_tokens = torch.argmax(probs, dim=-1).detach().cpu()
+
+        return tokenizer.decode(predicted_tokens.tolist())
+
+    
     def configure_optimizers(self):
         
         optimizer = torch.optim.Adam(
@@ -311,16 +327,23 @@ class DyulaTranslator(pl.LightningModule):
             attn_figure = wandb.Image(self.plot_attention(weights))
             wandb.log({"attention_weights_batch_{}_example_{}".format(batch_idx, i): attn_figure})
 
-    def plot_attention(self, attn_weights):
-        import matplotlib.pyplot as plt
-        import seaborn as sns
+    def plot_attention(
+            self, 
+            attn_weights,
+            src_len:int=None,
+            tgt_len:int=None
+        ):
 
         fig, ax = plt.subplots(figsize=(10, 10))
-        sns.heatmap(attn_weights, ax=ax, cmap='GnBu')
+        if src_len is not None and tgt_len is not None:
+            sns.heatmap(attn_weights[:tgt_len, :src_len], ax=ax, cmap='GnBu')
+        else:
+            sns.heatmap(attn_weights, ax=ax, cmap='GnBu')
         plt.xlabel('Source Sequence')
         plt.ylabel('Target Sequence')
         plt.title('Attention Weights')
         plt.show()
+
         return fig
 
 
@@ -343,12 +366,30 @@ if __name__=="__main__":
     print(model)
     summary(model=model)
 
-    source_batch, target_batch = next(iter(dm.train_dataloader()))
+    source_batch, target_batch, src_lens, tgt_lens = next(iter(dm.train_dataloader()))
     print("Source batch:", source_batch.shape)
     print("Target batch:", target_batch.shape)
-    
-    predictions, attn_ws = model(source_batch)
-    print(f"predictions: {predictions.shape}, attn_w: {attn_ws.shape}")
+    print("src lens: ", src_lens)
+    print("tgt lens: ", tgt_lens)
 
-    print(source_batch[0])
-    model.plot_attention(attn_ws[0])
+    print("> (source); = (target); < (predictions)")
+
+    idx                 = np.random.randint(low=0, high=Config.BATCH_SIZE)
+    src                 = source_batch[idx]
+    tgt                 = target_batch[idx]
+    
+    decoded_src         = dm.src_tokenizer.decode(src.tolist())
+    print(f"> {decoded_src}")
+    decoded_tgt         = dm.tgt_tokenizer.decode(tgt.tolist())
+    print(f"= {decoded_tgt}")
+
+    logits, attn_ws = model(source_batch)
+    print(f"predictions: {logits.shape}, attn_w: {attn_ws.shape}")
+    decoded_preds       = model.decode_predictions(
+        logits[idx], 
+        tokenizer=dm.tgt_tokenizer
+    ) 
+    print(f"< {decoded_preds}")
+    
+    print()
+    # model.plot_attention(attn_ws[idx], src_len=src_lens[idx], tgt_len=tgt_lens[idx])

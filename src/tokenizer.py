@@ -19,14 +19,16 @@ class Tokenizer:
             level:str="char"
         ):
 
-        self.name       = name
-        self.level      = level
-        self.unk_token  = Config.unk_token 
-        self.pad_token  = Config.pad_token
-        self.max_len    = max_len
+        self.name           = name
+        self.level          = level
+        self.eos_token      = Config.eos_token
+        self.unk_token      = Config.unk_token 
+        self.pad_token      = Config.pad_token
+        self.max_len        = max_len
 
         # vocabularies
-        self.vocab      = None
+        self.vocab          = None
+        self.reverse_vocab  = None
 
     def encode(self, text):
         # text = parseText(text)
@@ -45,6 +47,17 @@ class Tokenizer:
     def yield_tokens(self, data_iter):
         for text in data_iter:
             yield self.encode(text)
+    
+    def decode(self, token_ids: List[int]) -> str:
+        decoded = []
+        for idx in token_ids[1:-1]:
+            # skip eos and pad tokens 
+            if idx not in [Config.SPECIAL_TOKENS.index(self.eos_token), Config.SPECIAL_TOKENS.index(self.pad_token)]:
+                token = self.reverse_vocab.get(idx, self.unk_token)
+                decoded.append(token)
+
+        return ''.join(decoded)
+
 
     def build_vocab(
             self,
@@ -64,7 +77,8 @@ class Tokenizer:
             # Set default index for unknown tokens
             vocab.setdefault("[UNK]", len(specials))  # This makes "[UNK]" index consistent even if not in specials explicitly
             
-            self.vocab = vocab
+            self.vocab          = vocab
+            self.reverse_vocab  = {idx: word for word, idx in self.vocab.items()}
 
     def _get_vocab_size(self):
         assert self.vocab is not None, "Vocabulary is empty. Please, build the vocabulary first."

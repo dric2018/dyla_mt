@@ -1,3 +1,5 @@
+import numpy as np
+
 from config import Config
 
 import logging
@@ -40,7 +42,10 @@ class DyulaDFDataset(Dataset):
 
     def __getitem__(self, idx):
         source_sentence = self.df.iloc[idx].dyu
+        src_len         = self.df.iloc[idx].dyu_len
+
         target_sentence = self.df.iloc[idx].fr
+        tgt_len         = self.df.iloc[idx].fr_len
 
         source_tokens   = [self.src_tokenizer.vocab[token] for token in self.src_tokenizer.encode(source_sentence)]
         target_tokens   = [self.tgt_tokenizer.vocab[token] for token in self.tgt_tokenizer.encode(target_sentence)]
@@ -48,15 +53,21 @@ class DyulaDFDataset(Dataset):
         source_tokens   = [self.src_tokenizer.vocab["[SOS]"]] + source_tokens + [self.src_tokenizer.vocab["[EOS]"]]
         target_tokens   = [self.tgt_tokenizer.vocab["[SOS]"]] + target_tokens + [self.tgt_tokenizer.vocab["[EOS]"]]
 
-        return torch.tensor(source_tokens, dtype=torch.long), torch.tensor(target_tokens, dtype=torch.long)
+        return (
+            torch.tensor(source_tokens, dtype=torch.long), 
+            torch.tensor(target_tokens, dtype=torch.long),
+            src_len,
+            tgt_len
+        )
+            
 
 
 # Collate function for padding
 def collate_fn(batch):
-    source_batch, target_batch = zip(*batch)
+    source_batch, target_batch, src_lens, tgt_lens = zip(*batch)
     source_batch = pad_sequence(source_batch, padding_value=0, batch_first=True)
     target_batch = pad_sequence(target_batch, padding_value=0, batch_first=True)
-    return source_batch, target_batch
+    return source_batch, target_batch, torch.tensor(src_lens, dtype=torch.long), torch.tensor(tgt_lens, dtype=torch.long)
 
 
 class TranslationDataModule(pl.LightningDataModule):
@@ -162,15 +173,24 @@ if __name__=="__main__":
     # Training data loader sanity check
     print()
     logging.info("> Train")
-    for source_batch, target_batch in dm.train_dataloader():
+    for source_batch, target_batch, src_lens, tgt_lens in dm.train_dataloader():
         print("Source batch:", source_batch.shape)
         print("Target batch:", target_batch.shape)
+        print("src lens: ", src_lens)
+        print("tgt lens: ", tgt_lens)
         break
 
     # Validation data loader sanity check
     logging.info("> Validation")
-    for source_batch, target_batch in dm.val_dataloader():
+    for source_batch, target_batch, src_lens, tgt_lens in dm.val_dataloader():
         print("Source batch:", source_batch.shape)
         print("Target batch:", target_batch.shape)
+        print("src lens: ", src_lens)
+        print("tgt lens: ", tgt_lens)
         break
+
+    idx                 = np.random.randint(low=0, high=Config.BATCH_SIZE)
+    src                 = source_batch[idx]
+    decoded_src         = dm.src_tokenizer.decode(src.tolist())
+    print(f"> {decoded_src}")
 
