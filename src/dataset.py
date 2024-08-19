@@ -13,17 +13,27 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
 
+import pytorch_lightning as pl
+from pytorch_lightning import LightningDataModule
+
+import sys
 
 class DyulaDFDataset(Dataset):
     def __init__(
         self,
-        df,
-        tokenizer
+        df:pd.DataFrame,
+        src_tokenizer,
+        tgt_tokenizer,
+        src_max_len:int=Config.MAX_LENGTH,
+        trg_max_len:int=Config.MAX_LENGTH
     ):
         super().__init__()
 
-        self.df = df
-        self.tokenizer = tokenizer
+        self.df             = df
+        self.src_tokenizer  = src_tokenizer
+        self.tgt_tokenizer  = tgt_tokenizer
+        self.src_max_len    = src_max_len
+        self.trg_max_len    = trg_max_len
 
     def __len__(self):
         return self.df.shape[0]
@@ -32,11 +42,11 @@ class DyulaDFDataset(Dataset):
         source_sentence = self.df.iloc[idx].dyu
         target_sentence = self.df.iloc[idx].fr
 
-        source_tokens = [self.tokenizer.src_vocab[token] for token in self.tokenizer.encode(source_sentence)]
-        target_tokens = [self.tokenizer.tgt_vocab[token] for token in self.tokenizer.encode(target_sentence)]
+        source_tokens   = [self.src_tokenizer.vocab[token] for token in self.src_tokenizer.encode(source_sentence)]
+        target_tokens   = [self.tgt_tokenizer.vocab[token] for token in self.tgt_tokenizer.encode(target_sentence)]
 
-        source_tokens = [self.tokenizer.src_vocab["[SOS]"]] + source_tokens + [self.tokenizer.src_vocab["[EOS]"]]
-        target_tokens = [self.tokenizer.tgt_vocab["[SOS]"]] + target_tokens + [self.tokenizer.tgt_vocab["[EOS]"]]
+        source_tokens   = [self.src_tokenizer.vocab["[SOS]"]] + source_tokens + [self.src_tokenizer.vocab["[EOS]"]]
+        target_tokens   = [self.tgt_tokenizer.vocab["[SOS]"]] + target_tokens + [self.tgt_tokenizer.vocab["[EOS]"]]
 
         return torch.tensor(source_tokens, dtype=torch.long), torch.tensor(target_tokens, dtype=torch.long)
 
@@ -49,6 +59,59 @@ def collate_fn(batch):
     return source_batch, target_batch
 
 
+class TranslationDataModule(pl.LightningDataModule):
+    def __init__(
+        self, 
+        train_df:pd.DataFrame, 
+        val_df:pd.DataFrame, 
+        src_tokenizer,
+        tgt_tokenizer,
+        batch_size=Config.BATCH_SIZE
+    ):
+        super().__init__()
+        self.train_df       = train_df
+        self.val_df         = val_df
+        self.src_tokenizer  = src_tokenizer
+        self.tgt_tokenizer  = tgt_tokenizer
+        self.batch_size     = batch_size
+
+    def setup(self, stage=None):
+        logging.info(f"Building datasets...")
+        self.train_dataset = DyulaDFDataset(
+            self.train_df, 
+            src_tokenizer=self.src_tokenizer,
+            tgt_tokenizer=self.tgt_tokenizer
+        )
+        num_train_samples = len(self.train_dataset)
+
+        self.val_dataset = DyulaDFDataset(
+            self.val_df, 
+            src_tokenizer=self.src_tokenizer,
+            tgt_tokenizer=self.tgt_tokenizer
+        )
+        num_val_samples = len(self.val_dataset)
+
+        logging.info(f"> # Training samples: {num_train_samples}")
+        logging.info(f"> # Validation samples: {num_val_samples}")
+
+
+    def train_dataloader(self):
+        return DataLoader(
+            self.train_dataset, 
+            batch_size=self.batch_size, 
+            shuffle=True, 
+            collate_fn=collate_fn
+        )
+
+    def val_dataloader(self):
+        return DataLoader(
+            self.val_dataset, 
+            batch_size=self.batch_size, 
+            shuffle=False, 
+            collate_fn=collate_fn
+        )
+
+
 if __name__=="__main__":
     logging.info("Loading dataset files")
     train = pd.read_csv(osp.join(Config.DATA_DIR, "preprocessed/train.csv"))
@@ -58,59 +121,54 @@ if __name__=="__main__":
     source_sentences = train.dyu.values.tolist() + valid.dyu.values.tolist()
     target_sentences = train.fr.values.tolist() + valid.fr.values.tolist()
     
+    print()
     logging.info("Building vocabularies")
     
-    tokenizer = Tokenizer()
-    tokenizer.build_vocab(source_sentences, kind="source")
-    tokenizer.build_vocab(target_sentences, kind="target")
+    # source tokenizer
+    src_tokenizer = Tokenizer(name="dyu")
+    src_tokenizer.build_vocab(source_sentences)
+    src_vocab_size = src_tokenizer._get_vocab_size()
+    print(f"Vocab size: {src_vocab_size}")
+
+    # target tokenizer
+    tgt_tokenizer = Tokenizer(name="fr")
+    tgt_tokenizer.build_vocab(target_sentences)
+    tgt_vocab_size = tgt_tokenizer._get_vocab_size()
+    print(f"Vocab size: {tgt_vocab_size}")
 
     # Assert conditions to ensure vocabularies match for special tokens
-    assert tokenizer.src_vocab["[UNK]"] == tokenizer.tgt_vocab["[UNK]"]
-    assert tokenizer.src_vocab["[PAD]"] == tokenizer.tgt_vocab["[PAD]"]
+    assert src_tokenizer.vocab["[UNK]"] == tgt_tokenizer.vocab["[UNK]"]
+    assert src_tokenizer.vocab["[PAD]"] == tgt_tokenizer.vocab["[PAD]"]
 
     # Get indices for unknown and padding tokens
-    unk_index = tokenizer.src_vocab["[UNK]"]
-    pad_index = tokenizer.src_vocab["[PAD]"]
-    pad_index = tokenizer.src_vocab[Config.pad_token]
+    unk_index = Config.SPECIAL_TOKENS.index("[UNK]")
+    pad_index = Config.SPECIAL_TOKENS.index("[PAD]")
 
+    print()
     logging.info("Building Data loaders")
     
     # Create datasets
-    train_dataset = DyulaDFDataset(
-        df=train,
-        tokenizer=tokenizer
+    dm = TranslationDataModule(
+        train_df=train,
+        val_df=valid,
+        src_tokenizer=src_tokenizer,
+        tgt_tokenizer=tgt_tokenizer
     )
-
-    valid_dataset = DyulaDFDataset(
-        df=valid,
-        tokenizer=tokenizer
-    )
-
-    # Create data loaders
-    train_dataloader = DataLoader(
-        train_dataset,
-        batch_size  = Config.BATCH_SIZE,
-        collate_fn  = collate_fn,
-        pin_memory  = True,
-        shuffle     = True
-    )
-
-    valid_dataloader = DataLoader(
-        valid_dataset,
-        batch_size  = Config.BATCH_SIZE,
-        collate_fn  = collate_fn
-    )
+    dm.setup()
+    # sys.exit()
 
     # Training data loader sanity check
-    logging.info("> Training samples")
-    for source_batch, target_batch in train_dataloader:
+    print()
+    logging.info("> Train")
+    for source_batch, target_batch in dm.train_dataloader():
         print("Source batch:", source_batch.shape)
         print("Target batch:", target_batch.shape)
         break
 
     # Validation data loader sanity check
-    logging.info("> Validation samples")
-    for source_batch, target_batch in valid_dataloader:
+    logging.info("> Validation")
+    for source_batch, target_batch in dm.val_dataloader():
         print("Source batch:", source_batch.shape)
         print("Target batch:", target_batch.shape)
         break
+

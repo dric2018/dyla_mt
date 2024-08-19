@@ -25,10 +25,11 @@ class Config:
     # Model
     SEED                    = 2024
     MAX_LENGTH              = 128
-    teacher_forcing_ratio   = 0.5
-    BATCH_SIZE              = 32
+    tf_ratio_start          = 1.0
+    tf_ratio_end            = 0.5
+    BATCH_SIZE              = 8
     LR                      = 1e-3
-    EPOCHS                  = 25 if STAGE == 'debug' else 150
+    EPOCHS                  = 15 if STAGE == 'debug' else 100
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     

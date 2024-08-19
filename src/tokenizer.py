@@ -4,40 +4,56 @@ from config import Config
 import logging
 logging.basicConfig(level="INFO")
 
+from pprint import pprint
+
+from typing import List, Tuple
+
 from utils import char_tokenizer
+
 
 class Tokenizer:
     def __init__(
             self,
-            level:str="word"
+            name:str="fr",
+            max_len:int=Config.MAX_LENGTH,
+            level:str="char"
         ):
-        self.level = level
+
+        self.name       = name
+        self.level      = level
+        self.unk_token  = Config.unk_token 
+        self.pad_token  = Config.pad_token
+        self.max_len    = max_len
 
         # vocabularies
-        self.src_vocab = None
-        self.tgt_vocab = None
+        self.vocab      = None
 
     def encode(self, text):
         # text = parseText(text)
 
         if self.level =="word":
-            return text.split()  # For word-level tokenization
+            token_ids = text.split()  # For word-level tokenization
         else:
-            return list(text)  # For character-level tokenization
+            token_ids = list(text)  # For character-level tokenization
+        
+        # Truncating to max_len
+        if len(token_ids) > self.max_len:
+            token_ids = token_ids[:self.max_len]
+        
+        return token_ids
 
     def yield_tokens(self, data_iter):
         for text in data_iter:
             yield self.encode(text)
-
 
     def build_vocab(
             self,
             sentences, 
             min_freq:int=2, 
             specials:list=Config.SPECIAL_TOKENS,
-            mt:bool=True,
-            kind:str="source"
+            mt:bool=True
         ):
+        logging.info(f"Building {self.name} tokenizer...")
         # Tokenize sentences and build frequency dictionary
         token_counts = Counter(token for sentence in sentences for token in char_tokenizer(sentence))
         
@@ -49,9 +65,12 @@ class Tokenizer:
             # Set default index for unknown tokens
             vocab.setdefault("[UNK]", len(specials))  # This makes "[UNK]" index consistent even if not in specials explicitly
             
-            if kind=="source":
-                self.src_vocab = vocab
-            else:
-                self.tgt_vocab = vocab
+            self.vocab = vocab
 
-            
+    def _get_vocab_size(self):
+        assert self.vocab is not None, "Vocabulary is empty. Please, build the vocabulary first."
+        return len(self.vocab)
+    
+    def _print_vocab(self):
+        assert self.vocab is not None, "Vocabulary is empty. Please, build the vocabulary first."
+        pprint(self.vocab)    
