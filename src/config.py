@@ -6,7 +6,7 @@ import torch
 class Config:
 
     # I/O
-    STAGE                   = 'debug'
+    STAGE                   = 'train'
     unk_token               = "[UNK]"
     pad_token               = "[PAD]"
     sos_token               = "[SOS]"
@@ -28,26 +28,26 @@ class Config:
     ## Encoder
     ENCODER_EMBEDDING_DIM   = 256
     ENCODER_HIDDEN_DIM      = 256
-    NUM_ENCODER_LAYERS      = 2
-    ENCODER_DROPOUT         = .5
+    NUM_ENCODER_LAYERS      = 3
+    ENCODER_DROPOUT         = .3
 
     D_MODEL                 = 256
 
     ## Decoder
-    DECODER_EMBEDDING_DIM   = 512
-    DECODER_HIDDEN_DIM      = 512
-    NUM_DECODER_LAYERS      = 2
-    DECODER_DROPOUT         = .5
+    DECODER_EMBEDDING_DIM   = 256
+    DECODER_HIDDEN_DIM      = 256
+    NUM_DECODER_LAYERS      = 3
+    DECODER_DROPOUT         = .3
     MAX_OUTPUT              = 256
 
     SEED                    = 2024
     NUM_WORKERS             = os.cpu_count()
     EMBEDDING_DIM           = 256
     MAX_LENGTH              = 128
-    tf_ratio_start          = 0.99
-    tf_ratio_end            = 0.45
-    BATCH_SIZE              = 64
-    LR                      = 1e-3
+    tf_ratio_start          = 0.75
+    tf_ratio_end            = 0.35
+    BATCH_SIZE              = 256
+    LR                      = 1e-4
     EPOCHS                  = 30 if STAGE == 'debug' else 100
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

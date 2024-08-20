@@ -55,6 +55,8 @@ class Tokenizer:
             if idx not in [Config.SPECIAL_TOKENS.index(self.eos_token), Config.SPECIAL_TOKENS.index(self.pad_token)]:
                 token = self.reverse_vocab.get(idx, self.unk_token)
                 decoded.append(token)
+            else:
+                break
 
         return ''.join(decoded)
 

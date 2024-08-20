@@ -20,6 +20,8 @@ logging.basicConfig(level='INFO')
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+import numpy as np
+
 from utils import calc_edit_distance
 import wandb
 
@@ -132,11 +134,11 @@ class ScaledDotProductAttention(nn.Module):
 class Seq2SeqWithAttention(nn.Module):
     def __init__(
         self, 
-        input_dim:int,
-        output_dim:int,
-        max_trg_len=Config.MAX_OUTPUT
+        input_dim,
+        output_dim,
+        max_trg_len:int=Config.MAX_OUTPUT
     ):
-        super(Seq2SeqWithAttention, self).__init__()
+        super().__init__()
 
         self.trg_sos_idx        = Config.SPECIAL_TOKENS.index("[SOS]")
         self.trg_eos_idx        = Config.SPECIAL_TOKENS.index("[EOS]")
@@ -196,8 +198,8 @@ class Seq2SeqWithAttention(nn.Module):
         dec_hidden      = torch.zeros((Config.NUM_DECODER_LAYERS, batch_size, Config.DECODER_HIDDEN_DIM)).to(Config.device)
         dec_cell        = torch.zeros((Config.NUM_DECODER_LAYERS, batch_size, Config.DECODER_HIDDEN_DIM)).to(Config.device)
 
-        dec_hidden      = enc_hidden
-        dec_cell        = enc_cell
+        # dec_hidden      = enc_hidden
+        # dec_cell        = enc_cell
         
         attn_ws         = []
 
@@ -208,8 +210,8 @@ class Seq2SeqWithAttention(nn.Module):
         for t in range(timesteps):
             dec_emb         = self.decoder_emb_layer(dec_inp).unsqueeze(1)
 
-            if trg is not None:
-                if torch.rand(1).item() < teacher_forcing_ratio:
+            if torch.rand(1).item() < teacher_forcing_ratio:
+                if trg is not None:
                     dec_emb = self.decoder_emb_layer(trg[:, t].unsqueeze(1))
 
             # print(f"dec_emb: {dec_emb.shape}")
@@ -241,12 +243,12 @@ class Seq2SeqWithAttention(nn.Module):
 class DyulaTranslator(pl.LightningModule):
     def __init__(
         self, 
-        input_dim:int,
-        output_dim:int,
+        input_dim,
+        output_dim,
         src_tokenizer,
         tgt_tokenizer
     ):
-        super(DyulaTranslator, self).__init__()
+        super().__init__()
         
         # Initialization model
         self.translator             = Seq2SeqWithAttention(
@@ -277,8 +279,10 @@ class DyulaTranslator(pl.LightningModule):
         return loss
     
     def validation_step(self, batch, batch_idx):
+        
+        batch_idx_to_display = np.random.randint(low=1, high=Config.BATCH_SIZE)
         src, trg, _, _ = batch
-        output, attn_weights = self(src=src, trg=None)
+        output, attn_weights = self(src=src, trg=trg, teacher_forcing_ratio=Config.tf_ratio_end)
         n_tgt_tokens = trg.size(-1)
         # print(f"output: {output.shape}, tgt: {trg.shape}")
 
@@ -291,7 +295,7 @@ class DyulaTranslator(pl.LightningModule):
         self.log("val_loss", loss, on_epoch=True, prog_bar=True, logger=True)
 
         # Log predictions and attention weights to W&B
-        if batch_idx % 100 == 0:  # Adjust frequency as needed
+        if batch_idx % batch_idx_to_display == 0:  # Adjust frequency as needed
             self.log_predictions_and_attention_to_wandb(src, output, trg, attn_weights, batch_idx)
 
         return loss
@@ -345,9 +349,9 @@ class DyulaTranslator(pl.LightningModule):
 
         # print(src.shape, trg.shape, output.argmax(dim=-1).shape)
 
-        src_texts       = [self.src_tokenizer.decode(src[idx].cpu().tolist()) for idx in range(2)]
-        trg_texts       = [self.tgt_tokenizer.decode(trg[idx].cpu().tolist()) for idx in range(2)]
-        output_texts    = [self.decode_predictions(output[idx], tokenizer=self.tgt_tokenizer) for idx in range(2)]
+        src_texts       = [self.src_tokenizer.decode(src[idx].cpu().tolist()) for idx in range(B)]
+        trg_texts       = [self.tgt_tokenizer.decode(trg[idx].cpu().tolist()) for idx in range(B)]
+        output_texts    = [self.decode_predictions(output[idx], tokenizer=self.tgt_tokenizer) for idx in range(B)]
 
         dist = calc_edit_distance(
             pred=output_texts, 
@@ -360,8 +364,8 @@ class DyulaTranslator(pl.LightningModule):
 
         # Log predictions
         predictions_table = wandb.Table(columns=["Source", "Target", "Prediction"])
-        for i in range(len(src_texts)):
-            predictions_table.add_data(src_texts[i], trg_texts[i], output_texts[i])
+        # for i in range(len(src_texts)):
+        predictions_table.add_data(src_texts[-1], trg_texts[-1], output_texts[-1])
 
         wandb.log({"predictions_batch_{}".format(batch_idx): predictions_table})
 
@@ -373,15 +377,16 @@ class DyulaTranslator(pl.LightningModule):
     def plot_attention(
             self, 
             attn_weights,
-            src_len:int=None,
-            tgt_len:int=None
+            src_len,
+            tgt_len
         ):
 
         fig, ax = plt.subplots(figsize=(10, 10))
-        if src_len is not None and tgt_len is not None:
+        if src_len is not None:
             sns.heatmap(attn_weights[:tgt_len, :src_len], ax=ax, cmap='GnBu')
         else:
             sns.heatmap(attn_weights, ax=ax, cmap='GnBu')
+
         plt.xlabel('Source Sequence')
         plt.ylabel('Target Sequence')
         plt.title('Attention Weights')

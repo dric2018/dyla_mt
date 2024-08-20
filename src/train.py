@@ -7,7 +7,7 @@ logging.basicConfig(level='INFO')
 
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
-from pytorch_lightning.callbacks import RichProgressBar
+from pytorch_lightning.callbacks import RichProgressBar, ModelCheckpoint
 from pytorch_lightning.callbacks.progress.rich_progress import RichProgressBarTheme
 
 from model import DyulaTranslator
@@ -53,7 +53,7 @@ if __name__ == "__main__":
     progress_bar = RichProgressBar(
         theme=RichProgressBarTheme(
             # description="Training",
-            progress_bar="green1",
+            progress_bar="cyan1",
             progress_bar_finished="green1",
             progress_bar_pulse="#6206E0",
             batch_progress="green_yellow",
@@ -61,9 +61,14 @@ if __name__ == "__main__":
             processing_speed="grey82",
             metrics="grey82",
             metrics_text_delimiter="\n",
-            metrics_format=".7f",
+            metrics_format=".5f",
         ),
         leave=True
+    )
+    ckpt_callback = ModelCheckpoint(
+        monitor='val_loss',
+        dirpath=Config.MODEL_ZOO,
+        filename='dyula_mt'
     )
     trainer = pl.Trainer(
         default_root_dir=Config.LOG_DIR,
@@ -71,7 +76,7 @@ if __name__ == "__main__":
         max_epochs=Config.EPOCHS, 
         logger=wandb_logger,
         # logger=True
-        callbacks=[progress_bar]
+        callbacks=[progress_bar, ckpt_callback]
     )
 
     # # Start training
