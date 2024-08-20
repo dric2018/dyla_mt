@@ -7,6 +7,8 @@ logging.basicConfig(level='INFO')
 
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.callbacks import RichProgressBar
+from pytorch_lightning.callbacks.progress.rich_progress import RichProgressBarTheme
 
 from model import DyulaTranslator
 from dataset import build_data_module
@@ -19,16 +21,19 @@ if __name__ == "__main__":
 
     # Load data
     dm = build_data_module()
-    # dm.setup()
 
     src_vocab_size = dm.src_tokenizer._get_vocab_size()
     tgt_vocab_size = dm.tgt_tokenizer._get_vocab_size()
     
     # Start a new W&B run
-    # wandb.init(project="dyula-french-translation")
+    wandb.init(project="dyula-french-translation")
 
     # Initialize Weights & Biases logger
-    # wandb_logger = WandbLogger(project="dyula-french-translation")
+    wandb_logger = WandbLogger(
+        project="dyula-french-translation", 
+        save_dir=Config.LOG_DIR,
+        prefix="dyula-fr"
+    )
 
     # Define model 
     print()
@@ -45,24 +50,33 @@ if __name__ == "__main__":
     summary(model=model)
 
     # Initialize Trainer with GPU support
+    progress_bar = RichProgressBar(
+        theme=RichProgressBarTheme(
+            # description="Training",
+            progress_bar="green1",
+            progress_bar_finished="green1",
+            progress_bar_pulse="#6206E0",
+            batch_progress="green_yellow",
+            time="grey82",
+            processing_speed="grey82",
+            metrics="grey82",
+            metrics_text_delimiter="\n",
+            metrics_format=".7f",
+        ),
+        leave=True
+    )
     trainer = pl.Trainer(
+        default_root_dir=Config.LOG_DIR,
         accelerator=Config.device.type, 
         max_epochs=Config.EPOCHS, 
-        # logger=wandb_logger
+        logger=wandb_logger,
+        # logger=True
+        callbacks=[progress_bar]
     )
 
     # # Start training
     trainer.fit(model, dm)
 
     # # Finish the W&B run
-    # wandb.finish()
+    wandb.finish()
 
-    # optimizer, lr_scheduler = model.configure_optimizers()
-
-    # print(f"Device: {Config.device}")
-
-    # train_loss = train_fn(
-    #     model=model, 
-    #     data_loader=dm.train_dataloader(),
-    #     optimizer=optimizer[0]
-    # )

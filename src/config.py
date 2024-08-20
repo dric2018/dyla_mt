@@ -22,32 +22,33 @@ class Config:
     PROJECT_PATH            = "../"
     MODEL_ZOO               = osp.join(PROJECT_PATH, "models")
     DATA_DIR                = osp.join(PROJECT_PATH, "data")
+    LOG_DIR                 = osp.join(PROJECT_PATH, "logs")
 
     # Model
     ## Encoder
     ENCODER_EMBEDDING_DIM   = 256
     ENCODER_HIDDEN_DIM      = 256
     NUM_ENCODER_LAYERS      = 2
-    ENCODER_DROPOUT         = .15
+    ENCODER_DROPOUT         = .5
 
     D_MODEL                 = 256
 
     ## Decoder
-    DECODER_EMBEDDING_DIM   = 256
-    DECODER_HIDDEN_DIM      = 256
-    NUM_DECODER_LAYERS      = 3
-    DECODER_DROPOUT         = .15
-    MAX_OUTPUT              = 128
+    DECODER_EMBEDDING_DIM   = 512
+    DECODER_HIDDEN_DIM      = 512
+    NUM_DECODER_LAYERS      = 2
+    DECODER_DROPOUT         = .5
+    MAX_OUTPUT              = 256
 
     SEED                    = 2024
     NUM_WORKERS             = os.cpu_count()
     EMBEDDING_DIM           = 256
     MAX_LENGTH              = 128
-    tf_ratio_start          = 1.0
-    tf_ratio_end            = 0.5
-    BATCH_SIZE              = 8
+    tf_ratio_start          = 0.99
+    tf_ratio_end            = 0.45
+    BATCH_SIZE              = 64
     LR                      = 1e-3
-    EPOCHS                  = 15 if STAGE == 'debug' else 100
+    EPOCHS                  = 30 if STAGE == 'debug' else 100
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     

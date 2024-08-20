@@ -1,5 +1,9 @@
 from config import Config
+
+import Levenshtein
+
 from tqdm import tqdm
+import torch
 
 import re
 
@@ -145,4 +149,20 @@ def experiment(model, train_loader, valid_loader, optimizer, criterion, device, 
         print('-' * 50)
 
 
+def calc_edit_distance(pred, trg, tokenizer):
 
+    distance = 0 
+    batch_size = len(pred) if isinstance(pred, list) else trg.shape[0] 
+
+    if isinstance(pred, list):
+        for idx in range(batch_size):
+            distance += Levenshtein.distance(trg[idx], pred[idx]) 
+    else:
+        for i in range(batch_size): 
+            decoded_trg = tokenizer.decode(trg[i].tolist())
+            decoded_pred = tokenizer.decode(torch.argmax(pred[i],axis=-1).tolist())
+            distance += Levenshtein.distance(decoded_trg, decoded_pred) 
+            
+    distance /= batch_size 
+
+    return distance
