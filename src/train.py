@@ -19,7 +19,7 @@ if __name__ == "__main__":
 
     # Load data
     dm = build_data_module()
-    dm.setup()
+    # dm.setup()
 
     src_vocab_size = dm.src_tokenizer._get_vocab_size()
     tgt_vocab_size = dm.tgt_tokenizer._get_vocab_size()
@@ -39,31 +39,30 @@ if __name__ == "__main__":
         output_dim=tgt_vocab_size,
         src_tokenizer=dm.src_tokenizer,
         tgt_tokenizer=dm.tgt_tokenizer
-    ).to(Config.device)
+    )#.to(Config.device)
     
-    print(model)
+    # print(model)
     summary(model=model)
 
     # Initialize Trainer with GPU support
-    # trainer = pl.Trainer(
-    #     accelerator="auto", 
-    #     devices=Config.NUM_WORKERS,
-    #     max_epochs=Config.EPOCHS, 
-    #     logger=wandb_logger
-    # )
+    trainer = pl.Trainer(
+        accelerator=Config.device.type, 
+        max_epochs=Config.EPOCHS, 
+        # logger=wandb_logger
+    )
 
     # # Start training
-    # trainer.fit(model, dm)
+    trainer.fit(model, dm)
 
     # # Finish the W&B run
     # wandb.finish()
 
-    optimizer, lr_scheduler = model.configure_optimizers()
+    # optimizer, lr_scheduler = model.configure_optimizers()
 
-    print(f"Device: {Config.device}")
+    # print(f"Device: {Config.device}")
 
-    train_loss = train_fn(
-        model=model, 
-        data_loader=dm.train_dataloader(),
-        optimizer=optimizer[0]
-    )
+    # train_loss = train_fn(
+    #     model=model, 
+    #     data_loader=dm.train_dataloader(),
+    #     optimizer=optimizer[0]
+    # )

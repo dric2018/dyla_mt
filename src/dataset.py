@@ -111,7 +111,8 @@ class TranslationDataModule(pl.LightningDataModule):
             self.train_dataset, 
             batch_size=self.batch_size, 
             shuffle=True, 
-            collate_fn=collate_fn
+            collate_fn=collate_fn,
+            num_workers=Config.NUM_WORKERS
         )
 
     def val_dataloader(self):
@@ -119,7 +120,8 @@ class TranslationDataModule(pl.LightningDataModule):
             self.val_dataset, 
             batch_size=self.batch_size, 
             shuffle=False, 
-            collate_fn=collate_fn
+            collate_fn=collate_fn,
+            num_workers=Config.NUM_WORKERS
         )
 
 def build_data_module()->LightningDataModule:

@@ -30,10 +30,11 @@ class EmbeddingLayer(nn.Module):
     ):
         super(EmbeddingLayer, self).__init__()
         self.embedding = nn.Embedding(
-            num_embeddings=vocab_size, 
-            embedding_dim=emb_dim, 
-            padding_idx=Config.SPECIAL_TOKENS.index("[PAD]")
-        )
+                            num_embeddings=vocab_size, 
+                            embedding_dim=emb_dim, 
+                            padding_idx=Config.SPECIAL_TOKENS.index("[PAD]"),
+                            device=Config.device
+                        )
     
     def forward(self, x):
         return self.embedding(x)
@@ -49,12 +50,19 @@ class Encoder(nn.Module):
     ):
         super(Encoder, self).__init__()
         self.src_emb_layer      = EmbeddingLayer(emb_dim=Config.ENCODER_EMBEDDING_DIM, vocab_size=input_dim)
-        self.rnn = nn.LSTM(emb_dim, hid_dim, n_layers, dropout=dropout, batch_first=True)
-        self.dropout = nn.Dropout(dropout)
+        self.rnn                = nn.LSTM(
+                                    emb_dim, 
+                                    hid_dim, 
+                                    n_layers, 
+                                    dropout=dropout, 
+                                    batch_first=True,
+                                    device=Config.device
+                                )
+        self.dropout            = nn.Dropout(dropout)
     
     def forward(self, src):
-        src_emb = self.src_emb_layer(src)
-        _, (hidden, cell) = self.rnn(self.dropout(src_emb))
+        src_emb                 = self.src_emb_layer(src)
+        _, (hidden, cell)       = self.rnn(self.dropout(src_emb))
         return src_emb, hidden, cell
 
 class Decoder(nn.Module):
@@ -68,7 +76,14 @@ class Decoder(nn.Module):
     ):
         super(Decoder, self).__init__()
         
-        self.rnn            = nn.LSTM(emb_dim, hid_dim, n_layers, dropout=dropout, batch_first=True)
+        self.rnn            = nn.LSTM(
+                                emb_dim, 
+                                hid_dim, 
+                                n_layers, 
+                                dropout=dropout, 
+                                batch_first=True, 
+                                device=Config.device
+                            )
         self.fc_out         = nn.Linear(hid_dim, output_dim)
         self.dropout        = nn.Dropout(dropout)
     
@@ -133,7 +148,10 @@ class Seq2SeqWithAttention(nn.Module):
         self.decoder_emb_layer  = EmbeddingLayer(emb_dim=Config.DECODER_EMBEDDING_DIM, vocab_size=output_dim)
         self.decoder            = Decoder(output_dim=Config.DECODER_HIDDEN_DIM)
         
-        self.hidden_to_out      = nn.Linear(in_features=Config.D_MODEL+Config.DECODER_HIDDEN_DIM, out_features=Config.DECODER_EMBEDDING_DIM)
+        self.hidden_to_out      = nn.Linear(
+                                    in_features=Config.D_MODEL+Config.DECODER_HIDDEN_DIM, 
+                                    out_features=Config.DECODER_EMBEDDING_DIM
+                                )
         self.activation         = torch.nn.Tanh()
         self.out_layer          = torch.nn.Linear(in_features=Config.DECODER_EMBEDDING_DIM, out_features=output_dim)
 
@@ -170,11 +188,11 @@ class Seq2SeqWithAttention(nn.Module):
         #decode
         # print()
         # print("Decoding states...")
-        outputs         = torch.zeros(batch_size, timesteps, output_dim).to(src.device)
+        outputs         = torch.zeros(batch_size, timesteps, output_dim).to(Config.device)
         
-        dec_inp         = torch.full((batch_size,), fill_value=self.trg_sos_idx, dtype=torch.long).to(src.device)
-        dec_hidden      = torch.zeros((Config.NUM_DECODER_LAYERS, batch_size, Config.DECODER_HIDDEN_DIM))
-        dec_cell        = torch.zeros((Config.NUM_DECODER_LAYERS, batch_size, Config.DECODER_HIDDEN_DIM))
+        dec_inp         = torch.full((batch_size,), fill_value=self.trg_sos_idx, dtype=torch.long).to(Config.device)
+        dec_hidden      = torch.zeros((Config.NUM_DECODER_LAYERS, batch_size, Config.DECODER_HIDDEN_DIM)).to(Config.device)
+        dec_cell        = torch.zeros((Config.NUM_DECODER_LAYERS, batch_size, Config.DECODER_HIDDEN_DIM)).to(Config.device)
         
         attn_ws         = []
 
@@ -241,7 +259,7 @@ class DyulaTranslator(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         src, trg, _, _ = batch
-        output = self(src=src, trg=trg, teacher_forcing_ratio=self.tf)
+        output, attn_weights = self(src=src, trg=trg, teacher_forcing_ratio=self.tf)
         
         output = output[:, 1:].reshape(-1, output.shape[-1])
         trg = trg[:, 1:].reshape(-1)
@@ -364,7 +382,7 @@ if __name__=="__main__":
         output_dim=tgt_vocab_size,
         src_tokenizer=dm.src_tokenizer,
         tgt_tokenizer=dm.tgt_tokenizer
-        ).to(Config.device)
+        )#.to(Config.device)
     print(model)
     summary(model=model)
 

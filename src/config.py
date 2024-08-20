@@ -54,3 +54,4 @@ class Config:
 
 if __name__ == "__main__":
     print(f"Using device: {Config.device}")
+    print(Config.device.type)
