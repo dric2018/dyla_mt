@@ -240,7 +240,7 @@ class Seq2SeqWithAttention(nn.Module):
         timesteps       = trg.size(1) if trg is not None else self.max_trg_len
         batch_size      = src.size(0)
         output_dim      = self.output_dim        
-        print(f"B: {batch_size}, T: {timesteps}")
+        # print(f"B: {batch_size}, T: {timesteps}")
         # encode
         # print()
         # print("Encoding inputs...")
@@ -266,8 +266,8 @@ class Seq2SeqWithAttention(nn.Module):
         # print(f"dec_cell: {dec_cell.shape}")
 
         decoding_lpoop = range(batch_size)
-        if Config.STAGE =="debug":
-            decoding_lpoop = tqdm(range(batch_size), desc="batch greedy decoding", colour="cyan")
+        # if Config.STAGE =="debug":
+        #     decoding_lpoop = tqdm(range(batch_size), desc="batch greedy decoding", colour="cyan")
 
         for b in decoding_lpoop:
             logits, attn_ws = self.greedy_decoding(src_emb[b], timesteps, teacher_forcing_ratio)

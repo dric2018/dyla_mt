@@ -2,7 +2,7 @@ from config import Config
 
 from dataset import build_data_module
 
-from model import DyulaTranslator
+from src.modules import DyulaTranslator
 
 import logging
 logging.basicConfig(level='INFO')

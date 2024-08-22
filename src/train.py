@@ -10,36 +10,38 @@ from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import RichProgressBar, ModelCheckpoint
 from pytorch_lightning.callbacks.progress.rich_progress import RichProgressBarTheme
 
-from model import DyulaTranslator
-from dataset import build_data_module
+import modules
+import dataset
 
-from utils.utils import train_fn, valid_fn, experiment
+from rich.traceback import install 
+install()
+
 
 import wandb
 
 if __name__ == "__main__":
 
     # Load data
-    dm = build_data_module()
+    dm = dataset.build_data_module()
 
     src_vocab_size = dm.src_tokenizer._get_vocab_size()
     tgt_vocab_size = dm.tgt_tokenizer._get_vocab_size()
     
     # Start a new W&B run
-    wandb.init(project="dyula-french-translation")
+    # wandb.init(project="dyula-french-translation")
 
-    # Initialize Weights & Biases logger
-    wandb_logger = WandbLogger(
-        project="dyula-french-translation", 
-        save_dir=Config.LOG_DIR,
-        prefix="dyula-fr"
-    )
+    # # Initialize Weights & Biases logger
+    # wandb_logger = WandbLogger(
+    #     project="dyula-french-translation", 
+    #     save_dir=Config.LOG_DIR,
+    #     prefix="dyula-fr"
+    # )
 
     # Define model 
     print()
     logging.info("Building model")
 
-    model = DyulaTranslator(
+    modules = modules.DyulaTranslator(
         input_dim=src_vocab_size, 
         output_dim=tgt_vocab_size,
         src_tokenizer=dm.src_tokenizer,
@@ -47,7 +49,7 @@ if __name__ == "__main__":
     )#.to(Config.device)
     
     # print(model)
-    summary(model=model)
+    summary(model=modules)
 
     # Initialize Trainer with GPU support
     progress_bar = RichProgressBar(
@@ -74,14 +76,14 @@ if __name__ == "__main__":
         default_root_dir=Config.LOG_DIR,
         accelerator=Config.device.type, 
         max_epochs=Config.EPOCHS, 
-        logger=wandb_logger,
-        # logger=True
+        # logger=wandb_logger,
+        logger=True,
         callbacks=[progress_bar, ckpt_callback]
     )
 
     # # Start training
-    trainer.fit(model, dm)
+    trainer.fit(modules, dm)
 
     # # Finish the W&B run
-    wandb.finish()
+    # wandb.finish()
 

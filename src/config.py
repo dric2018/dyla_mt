@@ -47,7 +47,7 @@ class Config:
     tf_ratio_end            = 0.3
     BATCH_SIZE              = 32
     LR                      = 2e-4
-    EPOCHS                  = 30 if STAGE == 'debug' else 100
+    EPOCHS                  = 5 if STAGE == 'debug' else 100
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     

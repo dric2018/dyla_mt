@@ -6,8 +6,9 @@ import Levenshtein
 
 import os
 
-from model import DyulaTranslator
+import modules
 
+import numpy as np
 import pandas as pd
 
 from tqdm import tqdm
@@ -199,7 +200,7 @@ def load_checkpoint(
     logging.info("Loading model from checkpoint...")
     logging.info("Creating instance of RTCRAM...")
     
-    model = DyulaTranslator(
+    model = modules.DyulaTranslator(
     **hparams
     ).to(device)
     
