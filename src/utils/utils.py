@@ -1,6 +1,14 @@
 from config import Config
 
+import logging
+logging.basicConfig(level='INFO')
 import Levenshtein
+
+import os
+
+from model import DyulaTranslator
+
+import pandas as pd
 
 from tqdm import tqdm
 import torch
@@ -166,3 +174,137 @@ def calc_edit_distance(pred, trg, tokenizer):
     distance /= batch_size 
 
     return distance
+
+def fetch_sample_from_batch(
+    batch, 
+    batch_size:int, 
+    random:bool=False,
+    idx:int=0
+):
+    
+    if random:
+        idx = np.random.randint(batch_size)
+    else:
+        assert idx < batch_size, f"Value of idx ({idx}) is higher than batch size ({batch_size})"
+        idx = idx
+        
+    return batch[idx]
+
+def load_checkpoint(
+        hparams,
+        model_name:str="dyula_mt", 
+        device:str=Config.device,
+    ):
+    
+    logging.info("Loading model from checkpoint...")
+    logging.info("Creating instance of RTCRAM...")
+    
+    model = DyulaTranslator(
+    **hparams
+    ).to(device)
+    
+    logging.info("Preparing checkpoint...")
+    CKPT_PATH = os.path.join(Config.MODEL_PATH, model_name+".bin")
+    
+    logging.info("loading model state dict...")
+    try:
+        ckpt = torch.load(CKPT_PATH)  
+        model.load_state_dict(ckpt["model_state_dict"])
+    except FileNotFoundError:
+        logging.error(f"Could not find model checkpoint in {Config.MODEL_PATH}...trying other locations")
+        ckpt = torch.load(os.path.join("models", model_name+".bin"))  
+        model.load_state_dict(ckpt["model_state_dict"])
+
+    logging.info("Loading model from checkpoint...Complete!")
+    
+    return model
+
+def predict(model, inp, debug, device):
+
+    # greedy decoding
+
+    # decode predictions
+    
+    # return preds and attention weigths
+    pass
+
+def inference_step(
+    test_loader, 
+    debug:bool=False, 
+    mode:str="inference",
+    device:str=Config.device
+):
+    
+    """
+        Execute inference procedure in 2 modes
+        
+        mode: (str) One of 
+            inference: generate predictions using trained model
+            eval: Evaluate model by comparing predictions to ground truth
+            
+        test_loader: (DataLoader) Data loader to be used for testing
+    """
+    
+    model = load_checkpoint(model_name="RTCRAM")
+    
+    output = {
+        "self_attn_ws"          : [], 
+        "cross_attn_ws"         : [],
+        "preds"         : [],
+        "labels" : []
+    }
+    logging.info("Running inference now...")
+
+    
+    test_progress = tqdm(range(len(test_loader)), desc="Running inference")
+    
+    for batch_num in test_progress:
+        batch = next(iter(test_loader))
+        
+        for sample_id in tqdm(range(Config.TEST_BATCH_SIZE), leave=False, desc="Generating motor commands"):
+        
+            inp = fetch_sample_from_batch(
+                batch, 
+                batch_size=batch["in_state"].shape[0],
+                random=False,
+                idx=sample_id
+            )
+
+            preds, self_attn_ws, cross_attn_ws = predict(model, inp, debug, device)
+
+            output["self_attn_ws"].append(self_attn_ws)
+            output["cross_attn_ws"].append(cross_attn_ws)
+            output["preds"].append(preds[0])
+
+            if mode == "eval":
+                labels = inp["labels"].to(Config.device)
+                label = model.decode_predictions(
+                    predicted_ids=labels
+                )
+            output["labels"].append(label[0])
+        
+        # break
+        
+    if mode == "eval":
+        test_dist = calc_edit_distance(
+            predictions=output["preds"], 
+            y=output["labels"], 
+            batch=True
+        )        
+        
+        inference_results = pd.DataFrame({
+            "prediction": output["preds"],
+            "label": output["labels"],
+            "correct": [float(p==l) for p,l in zip(output["preds"], output["labels"])],
+            "distance": [calc_edit_distance(p, l, batch=False) for p,l in zip(output["preds"], output["labels"])]
+        })
+        
+        success_rate = 100*inference_results.correct.mean()
+        
+        print(f"**** Evaluatiion Report *****")
+        print(f"> Test Lev. distance\t: {test_dist:.4f}")
+        print(f"> Success Rate\t\t: {success_rate:.4f}%")
+        print(f"**** Evaluatiion Report *****")
+        return inference_results
+    else:
+        return output

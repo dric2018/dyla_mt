@@ -7,11 +7,13 @@ import torch.nn.functional as F
 
 from torchinfo import summary
 
+from tqdm import tqdm
+
 # lightning
 import pytorch_lightning as pl
 
 from config import Config
-from dataset import build_data_module
+import dataset
 
 import logging
 logging.basicConfig(level='INFO')
@@ -22,7 +24,10 @@ import seaborn as sns
 
 import numpy as np
 
-from utils import calc_edit_distance
+from rich.traceback import install 
+install()
+
+from utils import utils
 import wandb
 
 class EmbeddingLayer(nn.Module):
@@ -140,8 +145,8 @@ class Seq2SeqWithAttention(nn.Module):
     ):
         super().__init__()
 
-        self.trg_sos_idx        = Config.SPECIAL_TOKENS.index("[SOS]")
-        self.trg_eos_idx        = Config.SPECIAL_TOKENS.index("[EOS]")
+        self.sos_idx            = Config.SPECIAL_TOKENS.index("[SOS]")
+        self.eos_idx            = Config.SPECIAL_TOKENS.index("[EOS]")
         self.max_trg_len        = max_trg_len
         self.output_dim         = output_dim
 
@@ -155,7 +160,7 @@ class Seq2SeqWithAttention(nn.Module):
                                     in_features=Config.D_MODEL+Config.DECODER_HIDDEN_DIM, 
                                     out_features=Config.DECODER_EMBEDDING_DIM
                                 )
-        self.activation         = torch.nn.Tanh()
+        self.activation         = torch.nn.ReLU()
         self.out_layer          = torch.nn.Linear(in_features=Config.DECODER_EMBEDDING_DIM, out_features=output_dim)
 
         # weight tying
@@ -166,6 +171,62 @@ class Seq2SeqWithAttention(nn.Module):
         x = self.out_layer(self.activation(self.hidden_to_out(x)))
         # print(f"mpl out: {x.shape}")
         return x
+    
+    def greedy_decoding(
+            self,
+            src_embed,
+            timesteps,
+            trg,
+            teacher_forcing_ratio:float=0.
+    ):
+        
+        """
+            Greedy decoding for single sample
+        """
+        # print(f"src emb: {src_embed.shape}")
+
+        dec_inp         = torch.empty(1, 1, dtype=torch.long, device=src_embed.device).fill_(self.sos_idx)
+
+        dec_hidden      = torch.zeros((Config.NUM_DECODER_LAYERS, 1, Config.DECODER_HIDDEN_DIM)).to(Config.device)
+        dec_cell        = torch.zeros((Config.NUM_DECODER_LAYERS, 1, Config.DECODER_HIDDEN_DIM)).to(Config.device)
+                
+        # print(f"dec_hidden: {dec_hidden.shape}")
+        # print(f"dec_cell: {dec_cell.shape}")
+
+        for t in range(timesteps):
+            # print(f"\n> t: {t}")
+            # print(f"dec_inp: {dec_inp.shape}")
+            
+            dec_emb         = self.decoder_emb_layer(dec_inp)#.unsqueeze(1)
+            
+            if torch.rand(1).item() < teacher_forcing_ratio:
+                if trg is not None:
+                    dec_emb = self.decoder_emb_layer(trg[t]) #.unsqueeze(1)
+            
+            # print(f"dec_emb: {dec_emb.shape}")
+            out, dec_hidden, dec_cell = self.decoder(dec_emb, dec_hidden, dec_cell)
+            # print(f"dec out: {out.shape}, h: {dec_hidden.shape}")
+            
+            context, attn_w = self.attention(query=out, key=src_embed.unsqueeze(0), value=src_embed.unsqueeze(0))
+            # print(f"ctx: {context.shape}, attn_w: {attn_w.shape}")
+            
+            concat = torch.cat([out, context], dim=-1)
+            # print(f"concat: {concat.shape}")
+
+            probs = self.draw_from_dist(concat[:, -1]).squeeze(1)
+            # print(f"probs: {probs.shape}")
+            
+            _, next_tok = torch.max(probs, dim=-1)
+            # print(f"next_tok: {next_tok.shape}, {next_tok}")
+
+            if t >= 1 and next_tok == self.sos_idx:
+                break
+            
+            # update decoder input
+            dec_inp = torch.cat((dec_inp, next_tok.unsqueeze(1)), dim=1)
+
+        # return final decoder inp as complete decoded seq along with its aggregated atttention matrix
+        return dec_inp.squeeze(0), attn_w.squeeze(0)
 
     def forward(
             self, 
@@ -179,7 +240,7 @@ class Seq2SeqWithAttention(nn.Module):
         timesteps       = trg.size(1) if trg is not None else self.max_trg_len
         batch_size      = src.size(0)
         output_dim      = self.output_dim        
-        # print(f"B: {batch_size}, T: {timesteps}")
+        print(f"B: {batch_size}, T: {timesteps}")
         # encode
         # print()
         # print("Encoding inputs...")
@@ -191,53 +252,36 @@ class Seq2SeqWithAttention(nn.Module):
         #decode
         # print()
         # print("Decoding states...")
-        outputs         = torch.zeros(batch_size, timesteps, output_dim).to(Config.device)
+        # outputs         = torch.zeros(batch_size, timesteps, output_dim).to(Config.device)
         
-        dec_inp         = torch.full((batch_size,), fill_value=self.trg_sos_idx, dtype=torch.long).to(Config.device)
-
-        dec_hidden      = torch.zeros((Config.NUM_DECODER_LAYERS, batch_size, Config.DECODER_HIDDEN_DIM)).to(Config.device)
-        dec_cell        = torch.zeros((Config.NUM_DECODER_LAYERS, batch_size, Config.DECODER_HIDDEN_DIM)).to(Config.device)
+        # dec_inp         = torch.full((batch_size,), fill_value=self.sos_idx, dtype=torch.long).to(Config.device)
 
         # dec_hidden      = enc_hidden
         # dec_cell        = enc_cell
         
-        attn_ws         = []
-
+        batch_logits    = []
+        batch_attn      = []
         # print(f"dec_inp: {dec_inp.shape}")
         # print(f"dec_hidden: {dec_hidden.shape}")
         # print(f"dec_cell: {dec_cell.shape}")
 
-        for t in range(timesteps):
-            dec_emb         = self.decoder_emb_layer(dec_inp).unsqueeze(1)
+        decoding_lpoop = range(batch_size)
+        if Config.STAGE =="debug":
+            decoding_lpoop = tqdm(range(batch_size), desc="batch greedy decoding", colour="cyan")
 
-            if torch.rand(1).item() < teacher_forcing_ratio:
-                if trg is not None:
-                    dec_emb = self.decoder_emb_layer(trg[:, t].unsqueeze(1))
+        for b in decoding_lpoop:
+            logits, attn_ws = self.greedy_decoding(src_emb[b], timesteps, teacher_forcing_ratio)
+            # print(f"logits: {logits.shape}, attn_ws: {attn_ws.shape}")
+            batch_logits.append(logits)
+            batch_attn.append(attn_ws)
 
-            # print(f"dec_emb: {dec_emb.shape}")
-            out, dec_hidden, dec_cell = self.decoder(dec_emb, dec_hidden, dec_cell)
-            # print(f"dec out: {out.shape}, h: {dec_hidden.shape}")
-            
-            context, attn_w = self.attention(query=out, key=src_emb, value=src_emb)
-            # print(f"ctx: {context.shape}, attn_w: {attn_w.shape}")
-            attn_ws.append(attn_w.detach().cpu().squeeze(1))
-            
-            concat = torch.cat([out, context], dim=-1)
-            # print(f"concat: {concat.shape}")
+        batch_logits = torch.stack(batch_logits, dim=0)
+        print(f"batch_logits: {batch_logits.shape}")
 
-            preds = self.draw_from_dist(concat).squeeze(1)
-            # print(f"preds: {preds.shape}, outputs: {outputs.shape}")
-            outputs[:, t] = preds
-
-            dec_inp = preds.argmax(1)
-            # print(f"new dec_inp: {dec_inp.shape}")
-
-            if trg is None and (dec_inp == self.trg_eos_idx).all():
-                break
-
-        attn_ws = torch.stack(attn_ws, dim=1)
-
-        return outputs, attn_ws
+        batch_attn = torch.stack(batch_attn, dim=0)
+        print(f"batch_attn: {batch_attn.shape}")
+        
+        return batch_logits[:, 1:], batch_attn
 
 
 class DyulaTranslator(pl.LightningModule):
@@ -261,12 +305,21 @@ class DyulaTranslator(pl.LightningModule):
         self.criterion              = nn.CrossEntropyLoss(ignore_index=tgt_tokenizer.vocab['[PAD]'])
         self.tf                     = Config.tf_ratio_start  # Start with full teacher forcing
     
-    def forward(self, src, trg, teacher_forcing_ratio:float=Config.tf_ratio_start):
+    def forward(
+            self, 
+            src, 
+            trg, 
+            teacher_forcing_ratio:float=Config.tf_ratio_start
+    ):
         
         logits, attn_ws = self.translator(src, trg, teacher_forcing_ratio)
         return logits, attn_ws
 
-    def training_step(self, batch, batch_idx):
+    def training_step(
+        self, 
+        batch, 
+        batch_idx
+    ):
         src, trg, _, _ = batch
         output, attn_weights = self(src=src, trg=trg, teacher_forcing_ratio=self.tf)
         
@@ -274,11 +327,35 @@ class DyulaTranslator(pl.LightningModule):
         trg = trg[:, 1:].reshape(-1)
         
         loss = self.criterion(output, trg)
-        self.log("train_loss", loss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
+
+        # log train loss
+        self.log(
+            "train_loss", 
+            loss, 
+            prog_bar=True, 
+            logger=True, 
+            on_step=True, 
+            on_epoch=True
+        )
+
+        # log epoch LR
+        final_lr_epoch = float(self.optimizers().param_groups[0]['lr'])
+        self.log(
+            "lr", 
+            final_lr_epoch, 
+            prog_bar=True, 
+            logger=True, 
+            on_step=True, 
+            on_epoch=True
+        )        
         
         return loss
     
-    def validation_step(self, batch, batch_idx):
+    def validation_step(
+            self, 
+            batch, 
+            batch_idx
+    ):
         
         batch_idx_to_display = np.random.randint(low=1, high=Config.BATCH_SIZE)
         src, trg, _, _ = batch
@@ -300,12 +377,94 @@ class DyulaTranslator(pl.LightningModule):
 
         return loss
     
-    def decode_predictions(self, logits, tokenizer):
+    # def on_train_epoch_end(self):   
         
-        probs = F.softmax(logits, dim=-1)
-        predicted_tokens = torch.argmax(probs, dim=-1).detach().cpu()
+    #     all_preds = torch.stack(self.training_step_outputs)
+    #     all_labels = torch.stack(self.training_step_targets)
+        
+    #     rand_idx = np.random.randint(all_preds.shape[0])
 
-        return tokenizer.decode(predicted_tokens.tolist())
+    #     # decode predictions
+    #     pred = self.decode_predictions(
+    #         predicted_ids=all_preds[rand_idx].unsqueeze(0)
+    #     )[0]
+    #     label = self.decode_predictions(
+    #         predicted_ids=all_labels[rand_idx].unsqueeze(0)
+    #     )[0]
+    #     # log decoded sentenses
+    #     with open(config.LOGGING_FILE, "a") as f:            
+    #         f.write(f"Epoch #{self.current_epoch}\n")
+    #         f.write(f"Train \n")
+    #         cer = self.cer_fn(pred, label).item()
+    #         wer = self.wer_fn(pred, label).item()
+    #         f.write(f"Predicted \t: {pred}\n")
+    #         f.write(f"Actual \t\t: {label}\n")
+    #         f.write(f"CER \t\t: {cer:.4f}\n")
+    #         f.write(f"WER \t\t: {wer:.4f}\n\n")      
+            
+    #     # free mem
+    #     self.training_step_outputs.clear()
+    #     self.training_step_targets.clear()
+
+    # def on_validation_epoch_end(self):
+        
+    #     with open(config.LOGGING_FILE, "a") as f:
+    #         pred, label = self.validation_step_outputs[-1], self.validation_step_targets[-1]
+    #         f.write(f"Validation \n")
+    #         cer = self.cer_fn(pred, label).item()
+    #         wer = self.wer_fn(pred, label).item()
+    #         f.write(f"Predicted \t: {pred}\n")
+    #         f.write(f"Actual \t\t: {label}\n")
+    #         f.write(f"CER \t\t: {cer:.4f}\n")
+    #         f.write(f"WER \t\t: {wer:.4f}\n\n")
+        
+    #     # if self.training: TODO: investigate when to log attention plots to wandb
+    #     if len(self.self_attn_weights) > 0:
+    #         # plot attention weights
+    #         plot_attention(
+    #             self.self_attn_weights[0], 
+    #             show=False, 
+    #             pre_fix="val_selfattn", 
+    #             folder="val",
+    #             epoch=self.current_epoch,
+    #             wandb_logging=True
+    #         )
+
+    #         plot_attention(
+    #             self.cross_attn_weights[0],
+    #             kind="cross", 
+    #             pre_fix="val_crossattn", 
+    #             show=False, 
+    #             folder="val",
+    #             epoch=self.current_epoch,
+    #             wandb_logging=True
+    #         )   
+
+    #         plot_attention(
+    #             self.cross_attn_tokens_weights[0], 
+    #             pre_fix="val_crossattn_tokens", 
+    #             show=False, 
+    #             folder="val",
+    #             epoch=self.current_epoch,
+    #             wandb_logging=True
+    #         )             
+    #     # free memory
+    #     self.validation_step_outputs.clear()  
+    #     self.validation_step_targets.clear()
+    #     self.self_attn_weights.clear()
+    #     self.cross_attn_tokens_weights.clear()
+    #     self.cross_attn_weights.clear()
+    
+    def decode_predictions(
+            self, 
+            preds, 
+            tokenizer
+    ):
+        
+        # probs = F.softmax(logits, dim=-1)
+        # predicted_tokens = torch.argmax(probs, dim=-1).detach().cpu()
+
+        return tokenizer.decode(preds.tolist())
 
     
     def configure_optimizers(self):
@@ -314,6 +473,7 @@ class DyulaTranslator(pl.LightningModule):
             self.parameters(), 
             lr=Config.LR
         )
+
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, 
             mode="min", 
@@ -329,7 +489,7 @@ class DyulaTranslator(pl.LightningModule):
             start_ratio:float=Config.tf_ratio_start, 
             end_ratio:float=Config.tf_ratio_end, 
             num_epochs:int=Config.EPOCHS
-        ):
+    ):
         self.tf = max(end_ratio, start_ratio - (start_ratio - end_ratio) * (epoch / num_epochs))
         self.log("teacher_forcing_ratio", self.tf)
     
@@ -338,12 +498,12 @@ class DyulaTranslator(pl.LightningModule):
 
 
     def log_predictions_and_attention_to_wandb(
-            self, 
-            src, 
-            output, 
-            trg, 
-            attn_weights, 
-            batch_idx
+        self, 
+        src, 
+        output, 
+        trg, 
+        attn_weights, 
+        batch_idx
     ):
         B = src.size(0)
 
@@ -353,14 +513,13 @@ class DyulaTranslator(pl.LightningModule):
         trg_texts       = [self.tgt_tokenizer.decode(trg[idx].cpu().tolist()) for idx in range(B)]
         output_texts    = [self.decode_predictions(output[idx], tokenizer=self.tgt_tokenizer) for idx in range(B)]
 
-        dist = calc_edit_distance(
+        dist = utils.calc_edit_distance(
             pred=output_texts, 
             trg=trg_texts, 
             tokenizer=self.tgt_tokenizer
         )
 
         self.log("dist", dist, on_epoch=True, prog_bar=True)
-
 
         # Log predictions
         predictions_table = wandb.Table(columns=["Source", "Target", "Prediction"])
@@ -379,7 +538,7 @@ class DyulaTranslator(pl.LightningModule):
             attn_weights,
             src_len,
             tgt_len
-        ):
+    ):
 
         fig, ax = plt.subplots(figsize=(10, 10))
         if src_len is not None:
@@ -397,7 +556,7 @@ class DyulaTranslator(pl.LightningModule):
 
 if __name__=="__main__":
 
-    dm = build_data_module()
+    dm = dataset.build_data_module()
     dm.setup()
 
     src_vocab_size = dm.src_tokenizer._get_vocab_size()
@@ -432,20 +591,32 @@ if __name__=="__main__":
     decoded_tgt         = dm.tgt_tokenizer.decode(tgt.tolist())
     print(f"= {decoded_tgt}")
 
-    logits, attn_ws = model(source_batch.to(Config.device), trg=None)
-    # print(f"predictions: {logits.shape}, attn_w: {attn_ws.shape}")
+    # logits, attn_ws = model(
+    #     src=source_batch.to(Config.device), 
+    #     trg=target_batch.to(Config.device), 
+    #     teacher_forcing_ratio=.8
+    # )
+
+    preds, attn_ws = model(
+        src=source_batch.to(Config.device), 
+        trg=None
+    )
+    
+    print(f"predictions: {preds.shape}, attn_w: {attn_ws.shape}")
+
     decoded_preds       = model.decode_predictions(
-        logits[idx], 
+        preds[idx], 
         tokenizer=dm.tgt_tokenizer
     ) 
+    # decoded_preds       = dm.tgt_tokenizer.decode(preds[idx].tolist())
     print(f"< {decoded_preds}")
 
-    dist = calc_edit_distance(
+    dist = utils.calc_edit_distance(
         pred=[decoded_preds], 
         trg=[decoded_tgt], 
         tokenizer=dm.tgt_tokenizer
     )
     print(f"Lev. dist: {dist}")
 
-    print()
+    # print()
     # model.plot_attention(attn_ws[idx], src_len=src_lens[idx], tgt_len=tgt_lens[idx])

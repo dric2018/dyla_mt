@@ -7,9 +7,10 @@ import logging
 import os
 import os.path as osp
 
+import numpy as np
 import pandas as pd
 
-from utils import prepare_data
+from utils.utils import prepare_data
 
 logging.basicConfig(level="INFO")
 
@@ -17,7 +18,6 @@ logging.basicConfig(level="INFO")
 parser = argparse.ArgumentParser()
 
 parser.add_argument('-s', "--save_data", default=False)    
-
 
 if __name__ == "__main__":
 

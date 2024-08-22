@@ -8,7 +8,7 @@ from pprint import pprint
 
 from typing import List, Tuple
 
-from utils import char_tokenizer
+from utils.utils import char_tokenizer
 
 
 class Tokenizer:

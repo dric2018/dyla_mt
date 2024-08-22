@@ -13,7 +13,7 @@ import os.path as osp
 
 from torchinfo import summary
 
-from utils import calc_edit_distance
+from utils.utils import calc_edit_distance
 
 if __name__=="__main__":
 
@@ -25,9 +25,10 @@ if __name__=="__main__":
 
     print()
     logging.info("Building model")
+    
     # load model from ckpt
     model = DyulaTranslator.load_from_checkpoint(
-        checkpoint_path=osp.join(Config.MODEL_ZOO, "dyula_mt.ckpt"),
+        checkpoint_path=osp.join(Config.MODEL_ZOO, "dyula_mt-v2.ckpt"),
         input_dim=src_vocab_size, 
         output_dim=tgt_vocab_size,
         src_tokenizer=dm.src_tokenizer,

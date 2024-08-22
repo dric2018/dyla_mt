@@ -13,7 +13,7 @@ from pytorch_lightning.callbacks.progress.rich_progress import RichProgressBarTh
 from model import DyulaTranslator
 from dataset import build_data_module
 
-from utils import train_fn, valid_fn, experiment
+from utils.utils import train_fn, valid_fn, experiment
 
 import wandb
 
