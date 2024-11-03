@@ -44,10 +44,10 @@ class Config:
     SEED                    = 2024
     NUM_WORKERS             = os.cpu_count()
     EMBEDDING_DIM           = 256
-    MAX_LENGTH              = 64
+    MAX_LENGTH              = 32
     tf_ratio_start          = 0.75
     tf_ratio_end            = 0.35
-    BATCH_SIZE              = 8
+    BATCH_SIZE              = 2
     LR                      = 1e-4
     EPOCHS                  = 5 if STAGE == 'debug' else 100
 

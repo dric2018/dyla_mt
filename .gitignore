@@ -2,6 +2,7 @@
 data/
 logs/
 wandb/
+models/
 lightning_logs/
 
 
