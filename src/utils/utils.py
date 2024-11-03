@@ -59,7 +59,7 @@ def train_fn(
         model, 
         data_loader, 
         optimizer,
-        device=Config.device, 
+        device=Config.DEVICE, 
         teacher_forcing_ratio=Config.tf_ratio_start
 ):
     model.train()
@@ -194,7 +194,7 @@ def fetch_sample_from_batch(
 def load_checkpoint(
         hparams,
         model_name:str="dyula_mt", 
-        device:str=Config.device,
+        device:str=Config.DEVICE,
     ):
     
     logging.info("Loading model from checkpoint...")
@@ -233,7 +233,7 @@ def inference_step(
     test_loader, 
     debug:bool=False, 
     mode:str="inference",
-    device:str=Config.device
+    device:str=Config.DEVICE
 ):
     
     """
@@ -278,7 +278,7 @@ def inference_step(
             output["preds"].append(preds[0])
 
             if mode == "eval":
-                labels = inp["labels"].to(Config.device)
+                labels = inp["labels"].to(Config.DEVICE)
                 label = model.decode_predictions(
                     predicted_ids=labels
                 )

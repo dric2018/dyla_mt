@@ -15,8 +15,8 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
 
-import pytorch_lightning as pl
-from pytorch_lightning import LightningDataModule
+import lightning as pl
+from lightning import LightningDataModule
 
 import sys
 
@@ -60,6 +60,56 @@ class DyulaDFDataset(Dataset):
             tgt_len
         )
             
+class HFDyulaDataset(Dataset):
+    def __init__(
+        self, 
+        df, 
+        tokenizer, 
+        max_length=Config.MAX_LENGTH, 
+        is_train:bool=True
+    ):
+        self.data = df.copy()
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        self.is_train = is_train
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        dyula_text = self.data.iloc[idx]['dyu']
+        french_text = self.data.iloc[idx]['fr']
+
+        # Tokenize input and target texts
+        input_encodings = self.tokenizer(dyula_text, truncation=True, padding="max_length", max_length=self.max_length, return_tensors="pt")
+        target_encodings = self.tokenizer(french_text, truncation=True, padding="max_length", max_length=self.max_length, return_tensors="pt")
+
+        input_ids = input_encodings['input_ids'].squeeze()
+        attention_mask = input_encodings['attention_mask'].squeeze()
+
+        sample = {
+            'input_ids': input_ids,
+            'attention_mask': attention_mask,
+        }
+
+        if self.is_train:
+            labels = target_encodings['input_ids'].squeeze()
+            # Replace padding token id's of the labels by -100 to ignore in loss calculation
+            labels[labels == self.tokenizer.pad_token_id] = -100
+            sample.update({'labels': labels})
+
+        return sample
+
+def get_dataloader(
+    df, 
+    tokenizer, 
+    batch_size=Config.BATCH_SIZE, 
+    max_length=Config.MAX_LENGTH,
+    is_train:bool=True
+):
+    dataset = HFDyulaDataset(df, tokenizer, max_length, is_train)
+    
+    return DataLoader(dataset, batch_size=batch_size, shuffle=is_train, num_workers=Config.NUM_WORKERS)
 
 
 # Collate function for padding
