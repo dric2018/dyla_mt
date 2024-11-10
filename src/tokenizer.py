@@ -4,7 +4,11 @@ from config import Config
 import logging
 logging.basicConfig(level="INFO")
 
+import numpy as np
+
 from pprint import pprint
+
+import torch
 
 from typing import List, Tuple
 
@@ -12,6 +16,7 @@ from utils.utils import char_tokenizer
 
 
 class Tokenizer:
+
     def __init__(
             self,
             name:str="fr",
@@ -89,3 +94,68 @@ class Tokenizer:
     def _print_vocab(self):
         assert self.vocab is not None, "Vocabulary is empty. Please, build the vocabulary first."
         pprint(self.vocab)    
+
+class ByT5Tokenizer:
+    def __init__(self):
+        self.special_tokens = Config.SPECIAL_TOKENS
+        self.vocab_size = Config.VOCAB_SIZE
+
+    def encode(self, text):
+        byte_ids = list(text.encode("utf-8"))
+        byte_ids.append(Config.EOS_TOKEN_ID)
+        return byte_ids
+
+    def decode(self, byte_ids):
+        byte_ids = [b for b in byte_ids if b not in self.special_tokens]
+        byte_sequence = bytes(byte_ids)
+        return byte_sequence.decode("utf-8", errors="replace")
+
+    def pad(self, byte_ids, max_length):
+        if len(byte_ids) > max_length:
+            return byte_ids[:max_length]
+        else:
+            return byte_ids + [Config.PAD_TOKEN_ID] * (max_length - len(byte_ids))
+
+    def batch_encode(self, texts, max_length):
+        return [self.pad(self.encode(text), max_length) for text in texts]
+
+    def batch_decode(self, batch_byte_ids):
+        return [self.decode(byte_ids) for byte_ids in batch_byte_ids]
+
+    def encode_plus(
+        self, 
+        text, 
+        max_length:int=512, 
+        add_special_tokens=True, 
+        padding="max_length", 
+        return_attention_mask:bool=True, 
+        return_tensors:str=None,
+        truncation:bool=False
+    ):
+        """
+        Encode a single text and provide additional information, such as attention mask, truncation, and padding.
+        """
+        byte_ids = self.encode(text)
+
+        if add_special_tokens:
+            byte_ids.append(Config.EOS_TOKEN_ID)
+
+        if truncation and len(byte_ids) > max_length:
+            byte_ids = byte_ids[:max_length]
+
+        if padding == "max_length":
+            byte_ids = self.pad(byte_ids, max_length)
+
+        attention_mask = [1 if token != Config.PAD_TOKEN_ID else 0 for token in byte_ids]
+
+        if return_tensors == "pt":
+            byte_ids = torch.tensor(byte_ids, dtype=torch.long)
+            attention_mask = torch.tensor(attention_mask, dtype=torch.long)
+        elif return_tensors == "np":
+            byte_ids = np.array(byte_ids, dtype=np.int32)
+            attention_mask = np.array(attention_mask, dtype=np.int32)
+
+        return {
+            "input_ids": byte_ids,
+            "attention_mask": attention_mask
+        }

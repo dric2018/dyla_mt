@@ -9,11 +9,13 @@ import os.path as osp
 
 import pandas as pd
 
-from tokenizer import Tokenizer
+import tokenizer
 
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
+
+from transformers import T5Tokenizer, ByT5Tokenizer
 
 import lightning as pl
 from lightning import LightningDataModule
@@ -24,41 +26,50 @@ class DyulaDFDataset(Dataset):
     def __init__(
         self,
         df:pd.DataFrame,
-        src_tokenizer,
-        tgt_tokenizer,
-        src_max_len:int=Config.MAX_LENGTH,
-        trg_max_len:int=Config.MAX_LENGTH
+        tokenizer,
+        max_len:int=Config.MAX_LENGTH,
+        task:str="train"
     ):
         super().__init__()
 
         self.df             = df
-        self.src_tokenizer  = src_tokenizer
-        self.tgt_tokenizer  = tgt_tokenizer
-        self.src_max_len    = src_max_len
-        self.trg_max_len    = trg_max_len
+        self.tokenizer      = tokenizer
+        self.max_len        = max_len
+        self.task           = task
 
     def __len__(self):
         return self.df.shape[0]
 
     def __getitem__(self, idx):
-        source_sentence = self.df.iloc[idx].dyu
+        # src
+        src_txt         = self.df.iloc[idx].dyu
         src_len         = self.df.iloc[idx].dyu_len
+        src             = self.tokenizer.encode_plus(src_txt, 
+                                return_tensors="pt", 
+                                padding="max_length", 
+                                truncation=True, 
+                                max_length=self.max_len)
+        sample = {
+            "input_ids": src["input_ids"].squeeze(),
+            "attention_mask": src["attention_mask"].squeeze(),
+            "src_len": src_len
+        }
 
-        target_sentence = self.df.iloc[idx].fr
-        tgt_len         = self.df.iloc[idx].fr_len
+        if self.task =="train":
 
-        source_tokens   = [self.src_tokenizer.vocab[token] for token in self.src_tokenizer.encode(source_sentence)]
-        target_tokens   = [self.tgt_tokenizer.vocab[token] for token in self.tgt_tokenizer.encode(target_sentence)]
-
-        source_tokens   = [self.src_tokenizer.vocab["[SOS]"]] + source_tokens + [self.src_tokenizer.vocab["[EOS]"]]
-        target_tokens   = [self.tgt_tokenizer.vocab["[SOS]"]] + target_tokens + [self.tgt_tokenizer.vocab["[EOS]"]]
-
-        return (
-            torch.tensor(source_tokens, dtype=torch.long), 
-            torch.tensor(target_tokens, dtype=torch.long),
-            src_len,
-            tgt_len
-        )
+            tgt_txt     = self.df.iloc[idx].fr
+            tgt_len     = self.df.iloc[idx].fr_len
+            tgt         = self.tokenizer.encode_plus(tgt_txt, 
+                                return_tensors="pt", 
+                                padding="max_length", 
+                                truncation=True, 
+                                max_length=self.max_len)
+            
+            sample.update({
+                "labels": tgt["input_ids"].squeeze(),
+                "tgt_len":tgt_len
+            })
+        return sample
             
 class HFDyulaDataset(Dataset):
     def __init__(
@@ -105,9 +116,15 @@ def get_dataloader(
     tokenizer, 
     batch_size=Config.BATCH_SIZE, 
     max_length=Config.MAX_LENGTH,
-    is_train:bool=True
+    is_train:bool=True,
+    hf:bool=False
 ):
-    dataset = HFDyulaDataset(df, tokenizer, max_length, is_train)
+    task = "train" if is_train else "test"
+
+    if hf:
+        dataset = HFDyulaDataset(df, tokenizer, max_length, is_train)
+    else:
+        dataset = DyulaDFDataset(df=df, tokenizer=tokenizer, max_length=max_length, task=task)
     
     return DataLoader(dataset, batch_size=batch_size, shuffle=is_train, num_workers=Config.NUM_WORKERS)
 
@@ -125,30 +142,32 @@ class TranslationDataModule(pl.LightningDataModule):
         self, 
         train_df:pd.DataFrame, 
         val_df:pd.DataFrame, 
-        src_tokenizer,
-        tgt_tokenizer,
+        tokenizer_name:str=Config.BACKBONE_MODEL_NAME,
+        pretrained_tokenizer:bool=True,
         batch_size=Config.BATCH_SIZE
     ):
         super().__init__()
         self.train_df       = train_df
         self.val_df         = val_df
-        self.src_tokenizer  = src_tokenizer
-        self.tgt_tokenizer  = tgt_tokenizer
+        self.pretrained_tokenizer  = pretrained_tokenizer
+        if self.pretrained_tokenizer:
+            self.tokenizer      = ByT5Tokenizer.from_pretrained(tokenizer_name)
+        else:
+            self.tokenizer      = tokenizer.ByT5Tokenizer()
+
         self.batch_size     = batch_size
 
     def setup(self, stage=None):
         logging.info(f"Building datasets...")
         self.train_dataset = DyulaDFDataset(
             self.train_df, 
-            src_tokenizer=self.src_tokenizer,
-            tgt_tokenizer=self.tgt_tokenizer
+            tokenizer=self.tokenizer
         )
         num_train_samples = len(self.train_dataset)
 
         self.val_dataset = DyulaDFDataset(
             self.val_df, 
-            src_tokenizer=self.src_tokenizer,
-            tgt_tokenizer=self.tgt_tokenizer
+            tokenizer=self.tokenizer,
         )
         num_val_samples = len(self.val_dataset)
 
@@ -161,7 +180,7 @@ class TranslationDataModule(pl.LightningDataModule):
             self.train_dataset, 
             batch_size=self.batch_size, 
             shuffle=True, 
-            collate_fn=collate_fn,
+            # collate_fn=collate_fn,
             num_workers=Config.NUM_WORKERS
         )
 
@@ -170,7 +189,7 @@ class TranslationDataModule(pl.LightningDataModule):
             self.val_dataset, 
             batch_size=self.batch_size, 
             shuffle=False, 
-            collate_fn=collate_fn,
+            # collate_fn=collate_fn,
             num_workers=Config.NUM_WORKERS
         )
 
@@ -181,27 +200,27 @@ def build_data_module()->LightningDataModule:
     valid = pd.read_csv(osp.join(Config.DATA_DIR, "preprocessed/valid.csv"))
     # test = pd.read_csv(osp.join(DATA_DIR, "preprocessed/test.csv"))
 
-    source_sentences = train.dyu.values.tolist() + valid.dyu.values.tolist()
-    target_sentences = train.fr.values.tolist() + valid.fr.values.tolist()
+    # source_sentences = train.dyu.values.tolist() + valid.dyu.values.tolist()
+    # target_sentences = train.fr.values.tolist() + valid.fr.values.tolist()
     
-    print()
-    logging.info("Building vocabularies")
+    # print()
+    # logging.info("Building vocabularies")
     
-    # source tokenizer
-    src_tokenizer = Tokenizer(name="dyu")
-    src_tokenizer.build_vocab(source_sentences)
-    src_vocab_size = src_tokenizer._get_vocab_size()
-    print(f"Vocab size: {src_vocab_size}")
+    # # source tokenizer
+    # src_tokenizer = Tokenizer(name="dyu")
+    # src_tokenizer.build_vocab(source_sentences)
+    # src_vocab_size = src_tokenizer._get_vocab_size()
+    # print(f"Vocab size: {src_vocab_size}")
 
-    # target tokenizer
-    tgt_tokenizer = Tokenizer(name="fr")
-    tgt_tokenizer.build_vocab(target_sentences)
-    tgt_vocab_size = tgt_tokenizer._get_vocab_size()
-    print(f"Vocab size: {tgt_vocab_size}")
+    # # target tokenizer
+    # tgt_tokenizer = Tokenizer(name="fr")
+    # tgt_tokenizer.build_vocab(target_sentences)
+    # tgt_vocab_size = tgt_tokenizer._get_vocab_size()
+    # print(f"Vocab size: {tgt_vocab_size}")
 
-    # Assert conditions to ensure vocabularies match for special tokens
-    assert src_tokenizer.vocab["[UNK]"] == tgt_tokenizer.vocab["[UNK]"]
-    assert src_tokenizer.vocab["[PAD]"] == tgt_tokenizer.vocab["[PAD]"]
+    # # Assert conditions to ensure vocabularies match for special tokens
+    # assert src_tokenizer.vocab["[UNK]"] == tgt_tokenizer.vocab["[UNK]"]
+    # assert src_tokenizer.vocab["[PAD]"] == tgt_tokenizer.vocab["[PAD]"]
 
     logging.info("Building Data module")
     
@@ -209,8 +228,7 @@ def build_data_module()->LightningDataModule:
     dm = TranslationDataModule(
         train_df=train,
         val_df=valid,
-        src_tokenizer=src_tokenizer,
-        tgt_tokenizer=tgt_tokenizer,
+        pretrained_tokenizer=False,
         batch_size=Config.BATCH_SIZE
     )
 
@@ -225,24 +243,24 @@ if __name__=="__main__":
     # Training data loader sanity check
     print()
     logging.info("> Train")
-    for source_batch, target_batch, src_lens, tgt_lens in dm.train_dataloader():
-        print("Source batch:", source_batch.shape)
-        print("Target batch:", target_batch.shape)
-        print("src lens: ", src_lens)
-        print("tgt lens: ", tgt_lens)
+    for d in dm.train_dataloader():
+        print("Source batch:", d['input_ids'].shape)
+        print("Target batch:", d["labels"].shape)
+        print("src lens: ", d["src_len"])
+        print("tgt lens: ", d["tgt_len"])
         break
 
     # Validation data loader sanity check
     logging.info("> Validation")
-    for source_batch, target_batch, src_lens, tgt_lens in dm.val_dataloader():
-        print("Source batch:", source_batch.shape)
-        print("Target batch:", target_batch.shape)
-        print("src lens: ", src_lens)
-        print("tgt lens: ", tgt_lens)
+    for d in dm.val_dataloader():
+        print("Source batch:", d['input_ids'].shape)
+        print("Target batch:", d["labels"].shape)
+        print("src lens: ", d["src_len"])
+        print("tgt lens: ", d["tgt_len"])
         break
 
     idx                 = np.random.randint(low=0, high=Config.BATCH_SIZE)
-    src                 = source_batch[idx]
-    decoded_src         = dm.src_tokenizer.decode(src.tolist())
+    src                 = d['input_ids'][idx]
+    decoded_src         = dm.tokenizer.decode(src.tolist())
     print(f"> {decoded_src}")
 

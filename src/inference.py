@@ -15,8 +15,20 @@ from torchinfo import summary
 
 from utils.utils import calc_edit_distance
 
-if __name__=="__main__":
+from litserve import litserve
+from transformers import pipeline
 
+# @litserve.handler
+# def translate(text: str) -> str:
+#     input_text = f"translate Yoruba to French: {text}"
+#     input_ids = data_module.tokenizer(input_text, return_tensors="pt").input_ids
+#     output = model.generate(input_ids)
+#     translation = data_module.tokenizer.decode(output[0], skip_special_tokens=True)
+#     return translation
+
+
+if __name__=="__main__":
+    # litserve.start(port=8080)
     dm = build_data_module()
     dm.setup()
 
