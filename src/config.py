@@ -6,6 +6,7 @@ import torch
 class Config:
     # I/O
     STAGE                   = 'debug'
+    IS_PRETRAINED           = False
     # Special token IDs
     PAD_TOKEN_ID            = 256      
     EOS_TOKEN_ID            = 257      

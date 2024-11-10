@@ -1,5 +1,7 @@
 from config import Config
 
+from datetime import datetime
+
 import logging
 logging.basicConfig(level='INFO')
 import Levenshtein
@@ -10,6 +12,8 @@ import modules
 
 import numpy as np
 import pandas as pd
+
+import random
 
 from tqdm import tqdm
 import torch
@@ -53,6 +57,24 @@ def linear_tf_scheduler(
     num_epochs=Config.EPOCHS
 ):
     return max(end_ratio, start_ratio - (start_ratio - end_ratio) * (epoch / num_epochs))
+
+
+def generate_experiment_name():
+    # Get the current date in YYYY-MM-DD format
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    
+    # List of adjectives and nouns for unique experiment names
+    adjectives = ["brave", "bold", "bright", "clever", "curious", "mighty", "swift", "wise", "gentle", "fierce"]
+    nouns = ["falcon", "tiger", "lion", "eagle", "phoenix", "orca", "wolf", "panther", "dragon", "hawk"]
+
+    # Randomly select an adjective and a noun
+    adjective = random.choice(adjectives)
+    noun = random.choice(nouns)
+    
+    # Combine date, adjective, and noun to create a unique name
+    experiment_name = f"{date_str}_{adjective}_{noun}"
+    
+    return experiment_name
 
 
 def train_fn(

@@ -9,8 +9,10 @@ from torchinfo import summary
 
 from tqdm import tqdm
 
+from transformers import AutoModelForSeq2SeqLM, T5ForConditionalGeneration
+
 # lightning
-import pytorch_lightning as pl
+import lightning as pl
 
 from config import Config
 import dataset
@@ -147,12 +149,13 @@ class ByT5Model(nn.Module):
         dec_dropout:float=Config.DECODER_DROPOUT
     ):
         super(ByT5Model, self).__init__()
-        self.encoder = TransformerEncoder(num_encoder_layers, embed_dim, num_heads, hidden_dim, enc_dropout)
-        self.decoder = TransformerDecoder(num_decoder_layers, embed_dim, num_heads, hidden_dim, dec_dropout)
-        self.embed_tokens = nn.Embedding(vocab_size, embed_dim)
-        self.lm_head = nn.Linear(embed_dim, vocab_size)
+        self.encoder        = TransformerEncoder(num_encoder_layers, embed_dim, num_heads, hidden_dim, enc_dropout)
+        self.decoder        = TransformerDecoder(num_decoder_layers, embed_dim, num_heads, hidden_dim, dec_dropout)
+        self.embed_tokens   = nn.Embedding(vocab_size, embed_dim)
+        self.lm_head        = nn.Linear(embed_dim, vocab_size)
+        self.loss_fct       = nn.CrossEntropyLoss(ignore_index=Config.PAD_TOKEN_ID)
 
-    def forward(self, input_ids, attention_mask=None, decoder_input_ids=None):
+    def forward(self, input_ids, attention_mask=None, decoder_input_ids=None, labels=None):
         # Encode
         x = self.embed_tokens(input_ids)
         enc_output = self.encoder(x, mask=attention_mask)
@@ -161,4 +164,55 @@ class ByT5Model(nn.Module):
         y = self.embed_tokens(decoder_input_ids)
         dec_output = self.decoder(y, enc_output, mask=attention_mask)
 
-        return self.lm_head(dec_output)
+        # Project decoder outputs to vocabulary size using the language modeling head
+        lm_logits = self.lm_head(dec_output)
+
+        # If labels are provided, calculate the loss
+        loss = None
+        if labels is not None:
+            # Shift logits and labels for teacher forcing
+            shift_logits = lm_logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+            # Cross-entropy loss
+            loss = self.loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+        
+        return (loss, lm_logits) if loss is not None else lm_logits
+    
+
+class DyulaTranslator(pl.LightningModule):
+    def __init__(
+        self, 
+        model_name=Config.BACKBONE_MODEL_NAME,
+        is_pretrained:bool=Config.IS_PRETRAINED
+    ):
+        super(DyulaTranslator, self).__init__()
+        if is_pretrained:
+            self.translator = T5ForConditionalGeneration.from_pretrained(model_name)
+        else:
+            self.translator = ByT5Model()
+
+        self.learning_rate = Config.LR
+
+    def forward(self, input_ids, attention_mask, labels=None):
+        return self.translator(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+
+    def training_step(self, batch, batch_idx):
+        outputs = self(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"], labels=batch["labels"])
+        loss = outputs.loss
+        self.log("train_loss", loss)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        outputs = self(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"], labels=batch["labels"])
+        val_loss = outputs.loss
+        self.log("val_loss", val_loss)
+        return val_loss
+
+    def configure_optimizers(self):
+        return torch.optim.AdamW(self.parameters(), lr=self.learning_rate)
+
+
+if __name__ == '__main__':
+    translator = DyulaTranslator(is_pretrained=Config.IS_PRETRAINED)
+    print(translator)
+    summary(translator)

@@ -110,7 +110,7 @@ class DyulaTranslator(pl.LightningModule):
         model_name=Config.BACKBONE_MODEL_NAME,
         is_pretrained:bool=True
     ):
-        super().__init__()
+        super(DyulaTranslator, self).__init__()
         if is_pretrained:
             self.translator = T5ForConditionalGeneration.from_pretrained(model_name)
         else:
@@ -138,6 +138,6 @@ class DyulaTranslator(pl.LightningModule):
 
 
 if __name__ == '__main__':
-    translator = DyulaTranslator(is_pretrained=False)
+    translator = DyulaTranslator(is_pretrained=Config.IS_PRETRAINED)
     print(translator)
     summary(translator)

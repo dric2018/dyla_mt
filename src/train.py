@@ -1,31 +1,48 @@
 from config import Config
 
+from dataset import TranslationDataModule
+
 from torchinfo import summary
+from modules import DyulaTranslator
 
 import logging
 logging.basicConfig(level='INFO')
 
-import pytorch_lightning as pl
-from pytorch_lightning.loggers import WandbLogger
-from pytorch_lightning.callbacks import RichProgressBar, ModelCheckpoint
-from pytorch_lightning.callbacks.progress.rich_progress import RichProgressBarTheme
+import os.path as osp
+import pandas as pd
 
-import modules
-import dataset
+import lightning as pl
+from lightning.pytorch.loggers import WandbLogger, CSVLogger
+from lightning.pytorch.callbacks import RichProgressBar, ModelCheckpoint
+from lightning.pytorch.callbacks.progress.rich_progress import RichProgressBarTheme
 
 from rich.traceback import install 
 install()
 
+from utils.utils import generate_experiment_name
 
 import wandb
 
 if __name__ == "__main__":
 
     # Load data
-    dm = dataset.build_data_module()
+    # dm = build_data_module()
 
-    src_vocab_size = dm.src_tokenizer._get_vocab_size()
-    tgt_vocab_size = dm.tgt_tokenizer._get_vocab_size()
+    exp_name = generate_experiment_name()
+
+    logging.info("Loading dataset files")
+    train = pd.read_csv(osp.join(Config.DATA_DIR, "preprocessed/train.csv"))
+    valid = pd.read_csv(osp.join(Config.DATA_DIR, "preprocessed/valid.csv"))
+
+    logging.info("Building Data module")
+    # Create datasets
+    dm = TranslationDataModule(
+        train_df=train,
+        val_df=valid,
+        pretrained_tokenizer=False,
+        batch_size=Config.BATCH_SIZE
+    )
+    dm.setup()
     
     # Start a new W&B run
     # wandb.init(project="dyula-french-translation")
@@ -37,19 +54,16 @@ if __name__ == "__main__":
     #     prefix="dyula-fr"
     # )
 
+    csv_logger = CSVLogger(Config.LOG_DIR, name=exp_name)
+
     # Define model 
     print()
     logging.info("Building model")
 
-    modules = modules.DyulaTranslator(
-        input_dim=src_vocab_size, 
-        output_dim=tgt_vocab_size,
-        src_tokenizer=dm.src_tokenizer,
-        tgt_tokenizer=dm.tgt_tokenizer
-    )#.to(Config.device)
+    model = DyulaTranslator()#.to(Config.device)
     
     # print(model)
-    summary(model=modules)
+    summary(model=model)
 
     # Initialize Trainer with GPU support
     progress_bar = RichProgressBar(
@@ -74,15 +88,14 @@ if __name__ == "__main__":
     )
     trainer = pl.Trainer(
         default_root_dir=Config.LOG_DIR,
-        accelerator=Config.device.type, 
+        accelerator=Config.DEVICE.type, 
         max_epochs=Config.EPOCHS, 
-        # logger=wandb_logger,
-        logger=True,
+        logger=csv_logger,
         callbacks=[progress_bar, ckpt_callback]
     )
 
     # # Start training
-    trainer.fit(modules, dm)
+    trainer.fit(model=model, datamodule=dm)
 
     # # Finish the W&B run
     # wandb.finish()
