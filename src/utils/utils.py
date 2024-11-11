@@ -76,6 +76,11 @@ def generate_experiment_name():
     
     return experiment_name
 
+def generate_causal_mask(seq_len):
+    # Create a lower triangular matrix with `1`s on and below the diagonal
+    mask = torch.ones((seq_len, seq_len), dtype=torch.bool).triu(1)  # Shape: [seq_len, seq_len]
+    return ~mask
+
 
 def train_fn(
         model, 

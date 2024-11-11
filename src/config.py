@@ -32,7 +32,7 @@ class Config:
     ENCODER_DROPOUT         = .1
 
     D_MODEL                 = 512 # 1024
-    N_HEADS                 = 6 # 16
+    N_HEADS                 = 8 # 16
     ATTN_DROP_RATE          = 0.1
     FF_DROP_RATE            = 0.1
     D_FF                    = 2048 # 4096
