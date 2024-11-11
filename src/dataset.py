@@ -147,17 +147,17 @@ class TranslationDataModule(pl.LightningDataModule):
         train_df:pd.DataFrame, 
         val_df:pd.DataFrame, 
         tokenizer_name:str=Config.BACKBONE_MODEL_NAME,
-        pretrained_tokenizer:bool=True,
+        pretrained_tokenizer:bool=Config.IS_PRETRAINED,
         batch_size=Config.BATCH_SIZE
     ):
         super().__init__()
-        self.train_df       = train_df
-        self.val_df         = val_df
-        self.pretrained_tokenizer  = pretrained_tokenizer
+        self.train_df               = train_df
+        self.val_df                 = val_df
+        self.pretrained_tokenizer   = pretrained_tokenizer
         if self.pretrained_tokenizer:
-            self.tokenizer      = ByT5Tokenizer.from_pretrained(tokenizer_name)
+            self.tokenizer          = ByT5Tokenizer.from_pretrained(tokenizer_name)
         else:
-            self.tokenizer      = tokenizer.ByT5Tokenizer()
+            self.tokenizer          = tokenizer.ByT5Tokenizer()
 
         self.batch_size     = batch_size
 

@@ -10,7 +10,7 @@ from torchinfo import summary
 
 from tqdm import tqdm
 
-from transformers import AutoModelForSeq2SeqLM, T5ForConditionalGeneration
+from transformers import AutoModelForSeq2SeqLM, T5ForConditionalGeneration, ByT5Tokenizer
 import tokenizer
 
 # lightning
@@ -28,8 +28,15 @@ import seaborn as sns
 
 import numpy as np
 
+import os.path as osp
+
 from rich.traceback import install 
 install()
+
+import random
+
+import sacrebleu
+
 
 from utils import utils
 import wandb
@@ -356,42 +363,95 @@ class DyulaTranslator(pl.LightningModule):
         is_pretrained:bool=Config.IS_PRETRAINED
     ):
         super(DyulaTranslator, self).__init__()
+
+        self.is_pretrained = is_pretrained
+
         if is_pretrained:
             self.translator = T5ForConditionalGeneration.from_pretrained(model_name)
+            self.tokenizer = ByT5Tokenizer.from_pretrained(model_name)
         else:
             self.translator = ByT5Model()
 
         self.learning_rate = Config.LR
 
     def forward(self, input_ids, attention_mask, decoder_input_ids=None, labels=None):
-        out = self.translator(
+        if self.is_pretrained:
+            output = self.translator(
+                input_ids=input_ids, 
+                attention_mask=attention_mask, 
+                decoder_input_ids=decoder_input_ids,
+                labels=labels
+            )
+            return output.loss, output.logits
+        else:
+            out = self.translator(
             input_ids=input_ids, 
             attention_mask=attention_mask, 
             decoder_input_ids=decoder_input_ids, 
             labels=labels
-        )
-
-        return out
+            )
+            return out
 
     def training_step(self, batch, batch_idx):
-        loss, out = self(
+
+        if self.is_pretrained:
+            decoder_input_ids = batch['labels']
+            decoder_input_ids = torch.cat([torch.full((decoder_input_ids.size(0), 1), self.tokenizer.pad_token_id, dtype=torch.long), decoder_input_ids[:, :-1]], dim=1)
+            loss, _ = self(
+                batch['input_ids'], 
+                batch['attention_mask'],
+                decoder_input_ids, 
+                batch['labels']
+            )
+        else:
+            loss, out = self(
             input_ids=batch["input_ids"], 
             attention_mask=batch["attention_mask"], 
             decoder_input_ids=batch["dec_in"], 
             labels=batch["labels"]
-        )
+            )
 
-        self.log("train_loss", loss)
+            self.log("train_loss", loss, on_epoch=True, logger=True, on_step=True, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        val_loss, out = self(
+        if self.is_pretrained:
+            decoder_input_ids = batch['labels']
+            decoder_input_ids = torch.cat([torch.full((decoder_input_ids.size(0), 1), self.tokenizer.pad_token_id, dtype=torch.long), decoder_input_ids[:, :-1]], dim=1)
+            
+            generated_ids = self(
+                batch['input_ids'], 
+                batch['attention_mask'],
+                decoder_input_ids,
+                batch['labels']
+            )
+            pred_text = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
+            target_text = self.tokenizer.batch_decode(batch['labels'].squeeze(), skip_special_tokens=True)
+            
+            # compute BLEU score
+            bleu_score = sacrebleu.corpus_bleu(pred_text, [target_text])
+            self.log('val_bleu', bleu_score.score, on_step=False, on_epoch=True, prog_bar=True)
+
+        # Append random samples to file
+        if random.random() < 0.1:  # Append about 10% of validation samples
+            with open(osp.join('translations_sample.txt'), 'a') as file:
+                for dyu, pred, fr in zip(batch['input_ids'], pred_text, target_text):
+                    dyu_sentence = self.tokenizer.decode(dyu, skip_special_tokens=True)
+                    file.write(f"dyu: {dyu_sentence}\n")
+                    file.write(f"pred: {pred}\n")
+                    file.write(f"fr: {fr}\n")
+                    file.write("---\n")
+
+            return {"val_loss": val_loss, "BLEU": bleu_score.score}
+        else:
+    
+            val_loss, out = self(
             input_ids=batch["input_ids"], 
             attention_mask=batch["attention_mask"], 
             decoder_input_ids=batch["dec_in"], 
             labels=batch["labels"]
-        )
-        self.log("val_loss", val_loss)
+            )
+            self.log("val_loss", val_loss, on_epoch=True, logger=True)
         return val_loss
 
     def configure_optimizers(self):
@@ -403,7 +463,11 @@ if __name__ == '__main__':
     dm = dataset.build_data_module()
     dm.setup()
 
-    tok   = tokenizer.ByT5Tokenizer()
+    if Config.IS_PRETRAINED:
+        tok = ByT5Tokenizer()
+    else:
+        tok   = tokenizer.ByT5Tokenizer()
+
     translator  = DyulaTranslator(is_pretrained=Config.IS_PRETRAINED)
     print(translator)
     summary(translator)

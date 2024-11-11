@@ -6,7 +6,6 @@ from torchinfo import summary
 from modules import DyulaTranslator
 
 import logging
-logging.basicConfig(level='INFO')
 
 import os.path as osp
 import pandas as pd
@@ -23,12 +22,16 @@ from utils.utils import generate_experiment_name
 
 import wandb
 
+logging.basicConfig(filename=osp.join(Config.LOG_DIR, 'translations_log.txt'), level=logging.INFO, format='%(message)s')
+
+
 if __name__ == "__main__":
 
     # Load data
     # dm = build_data_module()
 
     exp_name = generate_experiment_name()
+    logging.info(f"Starting experiment {exp_name}")
 
     logging.info("Loading dataset files")
     train = pd.read_csv(osp.join(Config.DATA_DIR, "preprocessed/train.csv"))

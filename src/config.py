@@ -6,7 +6,7 @@ import torch
 class Config:
     # I/O
     STAGE                   = 'debug'
-    IS_PRETRAINED           = False
+    IS_PRETRAINED           = True
     # Special token IDs
     SOS_TOKEN_ID            = 256
     PAD_TOKEN_ID            = 257      
@@ -30,29 +30,29 @@ class Config:
 
     # Model
     ## Encoder
-    NUM_ENCODER_LAYERS      = 12 # 24
-    ENCODER_DROPOUT         = .1
+    NUM_ENCODER_LAYERS      = 24 # 24
+    ENCODER_DROPOUT         = .25
 
-    D_MODEL                 = 512 # 1024
+    D_MODEL                 = 1024 # 1024
     N_HEADS                 = 8 # 16
-    ATTN_DROP_RATE          = 0.1
-    FF_DROP_RATE            = 0.1
+    ATTN_DROP_RATE          = 0.25
+    FF_DROP_RATE            = 0.25
     D_FF                    = 2048 # 4096
 
     ## Decoder
-    NUM_DECODER_LAYERS      = 4 # 8
-    DECODER_DROPOUT         = .1
+    NUM_DECODER_LAYERS      = 8 # 8
+    DECODER_DROPOUT         = .25
     MAX_OUTPUT              = 128
 
     SEED                    = 2024
     NUM_WORKERS             = os.cpu_count()
-    EMBEDDING_DIM           = 256
-    MAX_LENGTH              = 50
+    EMBEDDING_DIM           = 512
+    MAX_LENGTH              = 32
     tf_ratio_start          = 0.75
     tf_ratio_end            = 0.35
     BATCH_SIZE              = 16
-    LR                      = 1e-3
-    EPOCHS                  = 5 if STAGE == 'debug' else 100
+    LR                      = 1e-4
+    EPOCHS                  = 2 if STAGE == 'debug' else 100
 
     DEVICE                  = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
