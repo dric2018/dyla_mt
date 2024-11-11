@@ -59,14 +59,18 @@ class DyulaDFDataset(Dataset):
 
             tgt_txt     = self.df.iloc[idx].fr
             tgt_len     = self.df.iloc[idx].fr_len
-            tgt         = self.tokenizer.encode_plus(tgt_txt, 
-                                return_tensors="pt", 
-                                padding="max_length", 
-                                truncation=True, 
-                                max_length=self.max_len)
+
+            dec_in      = self.tokenizer.encode_plus(tgt_txt, 
+                            return_tensors="pt", 
+                            padding="max_length", 
+                            truncation=True, 
+                            max_length=self.max_len)
+            
+            tgt      = torch.cat((dec_in["input_ids"][1:], torch.tensor([Config.PAD_TOKEN_ID])))
             
             sample.update({
-                "labels": tgt["input_ids"].squeeze(),
+                "dec_in": dec_in["input_ids"].squeeze(),
+                "labels": tgt.squeeze(),
                 "tgt_len":tgt_len
             })
         return sample
@@ -246,6 +250,7 @@ if __name__=="__main__":
     for d in dm.train_dataloader():
         print("Source batch:", d['input_ids'].shape)
         print("Target batch:", d["labels"].shape)
+        print("Dec in batch:", d["dec_in"].shape)
         print("src lens: ", d["src_len"])
         print("tgt lens: ", d["tgt_len"])
         break

@@ -101,14 +101,20 @@ class ByT5Tokenizer:
         self.vocab_size = Config.VOCAB_SIZE
 
     def encode(self, text):
-        byte_ids = list(text.encode("utf-8"))
-        byte_ids.append(Config.EOS_TOKEN_ID)
+        byte_ids = [Config.SOS_TOKEN_ID] + list(text.encode("utf-8")) + [Config.EOS_TOKEN_ID]
         return byte_ids
 
     def decode(self, byte_ids):
-        byte_ids = [b for b in byte_ids if b not in self.special_tokens]
-        byte_sequence = bytes(byte_ids)
-        return byte_sequence.decode("utf-8", errors="replace")
+        decoded_parts = []
+        for b in byte_ids:
+            if b in self.special_tokens:
+                # If it's a special token ID, append its string representation
+                decoded_parts.append(self.special_tokens[b])
+            else:
+                # Otherwise, decode it as a regular byte
+                decoded_parts.append(chr(b))
+        # Join all parts into a single string
+        return ''.join(decoded_parts)
 
     def pad(self, byte_ids, max_length):
         if len(byte_ids) > max_length:

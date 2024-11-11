@@ -11,6 +11,7 @@ from torchinfo import summary
 from tqdm import tqdm
 
 from transformers import AutoModelForSeq2SeqLM, T5ForConditionalGeneration
+import tokenizer
 
 # lightning
 import lightning as pl
@@ -277,11 +278,11 @@ class ByT5Model(nn.Module):
     ):
         # Encode
         x = self.embed_tokens(input_ids)
-        print("emb out: ", x.shape)
+        # print("emb out: ", x.shape)
         enc_output, _ = self.encoder(x, mask=attention_mask)
-        print("enc out: ", enc_output.shape)
+        # print("enc out: ", enc_output.shape)
 
-        # If `decoder_input_ids` is None, perform autoregressive decoding
+        # # If `decoder_input_ids` is None, perform autoregressive decoding
         if decoder_input_ids is None:
             return self.autoregressive_decode(enc_output, attention_mask)
 
@@ -346,7 +347,7 @@ class ByT5Model(nn.Module):
             if torch.all(finished):
                 break
 
-        return decoder_input_ids  # Return the generated sequence
+        return decoder_input_ids[:, 1:]  # Return the generated sequence
 
 class DyulaTranslator(pl.LightningModule):
     def __init__(
@@ -362,18 +363,34 @@ class DyulaTranslator(pl.LightningModule):
 
         self.learning_rate = Config.LR
 
-    def forward(self, input_ids, attention_mask, labels=None):
-        return self.translator(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+    def forward(self, input_ids, attention_mask, decoder_input_ids=None, labels=None):
+        out = self.translator(
+            input_ids=input_ids, 
+            attention_mask=attention_mask, 
+            decoder_input_ids=decoder_input_ids, 
+            labels=labels
+        )
+
+        return out
 
     def training_step(self, batch, batch_idx):
-        outputs = self(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"], labels=batch["labels"])
-        loss = outputs.loss
+        loss, out = self(
+            input_ids=batch["input_ids"], 
+            attention_mask=batch["attention_mask"], 
+            decoder_input_ids=batch["dec_in"], 
+            labels=batch["labels"]
+        )
+
         self.log("train_loss", loss)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        outputs = self(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"], labels=batch["labels"])
-        val_loss = outputs.loss
+        val_loss, out = self(
+            input_ids=batch["input_ids"], 
+            attention_mask=batch["attention_mask"], 
+            decoder_input_ids=batch["dec_in"], 
+            labels=batch["labels"]
+        )
         self.log("val_loss", val_loss)
         return val_loss
 
@@ -386,20 +403,28 @@ if __name__ == '__main__':
     dm = dataset.build_data_module()
     dm.setup()
 
-    translator = DyulaTranslator(is_pretrained=Config.IS_PRETRAINED)
+    tok   = tokenizer.ByT5Tokenizer()
+    translator  = DyulaTranslator(is_pretrained=Config.IS_PRETRAINED)
     print(translator)
     summary(translator)
 
-    d = next(iter(dm.train_dataloader()))
+    d           = next(iter(dm.train_dataloader()))
     print("Source batch:", d['input_ids'].shape)
+    print("Source batch[0]:", d['input_ids'][0])
+    print("Dec in batch:", d["dec_in"].shape)
     print("Attn msk:", d['attention_mask'].shape)
     print("Target batch:", d["labels"].shape)
     print("src lens: ", d["src_len"])
     print("tgt lens: ", d["tgt_len"])
     
-    out = translator(input_ids=d["input_ids"], attention_mask=d["attention_mask"], labels=d["labels"])
+    loss, out   = translator(
+                    input_ids=d["input_ids"], 
+                    attention_mask=d["attention_mask"], 
+                    decoder_input_ids=d["dec_in"],
+                    labels=d["labels"]
+                )
 
     print(out.shape)
-    print(out.shape)
+    print(tok.batch_decode(out.argmax(dim=-1)))
+    print(f"loss={loss}")
 
-    

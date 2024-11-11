@@ -8,15 +8,17 @@ class Config:
     STAGE                   = 'debug'
     IS_PRETRAINED           = False
     # Special token IDs
-    PAD_TOKEN_ID            = 256      
-    EOS_TOKEN_ID            = 257      
-    MASK_TOKEN_ID           = 258     # Mask token (optional for span masking)
+    SOS_TOKEN_ID            = 256
+    PAD_TOKEN_ID            = 257      
+    EOS_TOKEN_ID            = 258      
+    MASK_TOKEN_ID           = 259     # Mask token (optional for span masking)
     SPECIAL_TOKENS          = {
+                                SOS_TOKEN_ID: "<sos>",
                                 PAD_TOKEN_ID: "<pad>", 
                                 EOS_TOKEN_ID: "<eos>", 
                                 MASK_TOKEN_ID: "<mask>"
                             }
-    VOCAB_SIZE              = 259        # 256 bytes + 3 special tokens
+    VOCAB_SIZE              = 260        # 256 bytes + 4 special tokens
     HF_USERNAME             = "dric2018"
     HF_REPO_NAME            = "dyu-fr-mt"
     BACKBONE_MODEL_NAME     = "google/byt5-small"
@@ -45,12 +47,12 @@ class Config:
     SEED                    = 2024
     NUM_WORKERS             = os.cpu_count()
     EMBEDDING_DIM           = 256
-    MAX_LENGTH              = 128
+    MAX_LENGTH              = 50
     tf_ratio_start          = 0.75
     tf_ratio_end            = 0.35
-    BATCH_SIZE              = 4
-    LR                      = 1e-4
-    EPOCHS                  = 25 if STAGE == 'debug' else 100
+    BATCH_SIZE              = 16
+    LR                      = 1e-3
+    EPOCHS                  = 5 if STAGE == 'debug' else 100
 
     DEVICE                  = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
